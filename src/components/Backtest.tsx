@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import type { ChartDataPoint, StockOption, TradeRule } from '@/types/stock';
 import { loadRules } from '@/lib/ruleEngine';
-import { runBacktest, type BacktestResult } from '@/lib/backtest';
+import { runBacktest, type BacktestResult, type ExitReason } from '@/lib/backtest';
 
 interface Props {
   data: ChartDataPoint[];
@@ -35,6 +35,33 @@ function fmtDate(iso: string): string {
 
 const inputCls =
   'bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500';
+
+const EXIT_REASON_LABEL: Record<ExitReason, string> = {
+  takeProfit:   '利確',
+  trailingStop: 'TStop',
+  maxHoldDays:  '期間満了',
+  ruleExit:     'ルール',
+  periodEnd:    '期間終了',
+};
+
+const EXIT_REASON_STYLE: Record<ExitReason, string> = {
+  takeProfit:   'bg-emerald-900/50 text-emerald-400 border-emerald-800/60',
+  trailingStop: 'bg-amber-900/50 text-amber-400 border-amber-800/60',
+  maxHoldDays:  'bg-blue-900/50 text-blue-400 border-blue-800/60',
+  ruleExit:     'bg-slate-800 text-slate-400 border-slate-700',
+  periodEnd:    'bg-slate-800/50 text-slate-600 border-slate-700/50',
+};
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="relative group inline-flex ml-1">
+      <span className="text-slate-600 text-[9px] cursor-help select-none leading-none">(?)</span>
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-52 p-2 bg-slate-800 border border-slate-700 rounded-lg text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none whitespace-normal shadow-xl">
+        {text}
+      </span>
+    </span>
+  );
+}
 
 function SummaryCard({
   label,
@@ -91,6 +118,10 @@ export default function Backtest({ data, stock }: Props) {
   const [selectedRuleId, setSelectedRuleId] = useState<string>(rules[0]?.id ?? '');
   const [initialCapital, setInitialCapital] = useState(1_000_000);
   const [positionSize, setPositionSize] = useState(50);
+  // イグジット設定（空文字 = 無効）
+  const [takeProfit, setTakeProfit] = useState('5');
+  const [trailingStop, setTrailingStop] = useState('3');
+  const [maxHoldDays, setMaxHoldDays] = useState('20');
   const [result, setResult] = useState<BacktestResult | null>(null);
 
   useEffect(() => {
@@ -101,6 +132,10 @@ export default function Backtest({ data, stock }: Props) {
     const rule = rules.find(r => r.id === selectedRuleId);
     if (!rule || data.length < 5) return;
 
+    const takeProfitVal  = takeProfit  !== '' ? parseFloat(takeProfit)  / 100 : undefined;
+    const trailingStopVal = trailingStop !== '' ? parseFloat(trailingStop) / 100 : undefined;
+    const maxHoldDaysVal = maxHoldDays !== '' ? parseInt(maxHoldDays)        : undefined;
+
     const res = runBacktest(
       {
         rule,
@@ -108,12 +143,15 @@ export default function Backtest({ data, stock }: Props) {
         endDate: data[data.length - 1].date,
         initialCapital,
         positionSize: positionSize / 100,
+        takeProfit:   takeProfitVal,
+        trailingStop: trailingStopVal,
+        maxHoldDays:  maxHoldDaysVal,
       },
       data,
       rules,
     );
     setResult(res);
-  }, [rules, selectedRuleId, data, initialCapital, positionSize]);
+  }, [rules, selectedRuleId, data, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays]);
 
   const selectedRule = rules.find(r => r.id === selectedRuleId);
   const isPositive = (result?.totalReturn ?? 0) >= 0;
@@ -181,6 +219,61 @@ export default function Backtest({ data, stock }: Props) {
           </div>
         </div>
 
+        {/* イグジット設定 */}
+        <div>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
+            イグジット設定
+            <span className="normal-case ml-1 text-slate-700">（空欄で無効）</span>
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs text-slate-500 flex items-center mb-1">
+                テイクプロフィット（%）
+                <InfoTooltip text="買値からこの割合上昇したら自動で利益確定します。例: 5 → +5%で売り" />
+              </label>
+              <input
+                type="number"
+                value={takeProfit}
+                min={0.1}
+                step={0.5}
+                placeholder="例: 5"
+                onChange={e => setTakeProfit(e.target.value)}
+                className={`w-full ${inputCls}`}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 flex items-center mb-1">
+                トレイリングストップ（%）
+                <InfoTooltip text="保有中の最高値からこの割合下落したら損切りします。例: 3 → 高値から-3%で売り" />
+              </label>
+              <input
+                type="number"
+                value={trailingStop}
+                min={0.1}
+                step={0.5}
+                placeholder="例: 3"
+                onChange={e => setTrailingStop(e.target.value)}
+                className={`w-full ${inputCls}`}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 flex items-center mb-1">
+                最大保有日数（日）
+                <InfoTooltip text="エントリーからこの日数を超えたら強制決済します。他の条件より優先度は低いです。" />
+              </label>
+              <input
+                type="number"
+                value={maxHoldDays}
+                min={1}
+                step={1}
+                placeholder="例: 20"
+                onChange={e => setMaxHoldDays(e.target.value)}
+                className={`w-full ${inputCls}`}
+              />
+            </div>
+          </div>
+        </div>
+
         {selectedRule && (
           <p className="text-[10px] text-slate-600">
             {selectedRule.type === 'buy'
@@ -236,6 +329,35 @@ export default function Backtest({ data, stock }: Props) {
               positive={result.totalTrades > 0}
             />
           </div>
+
+          {/* 決済理由の内訳 */}
+          {result.totalTrades > 0 && (
+            <div className="bg-slate-900/60 rounded-xl px-4 py-3 border border-slate-800/60">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">決済理由の内訳</p>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ['takeProfit',   result.exitReasons.takeProfit],
+                    ['trailingStop', result.exitReasons.trailingStop],
+                    ['maxHoldDays',  result.exitReasons.maxHoldDays],
+                    ['ruleExit',     result.exitReasons.ruleExit],
+                  ] as [ExitReason, number][]
+                )
+                  .filter(([, count]) => count > 0)
+                  .map(([reason, count]) => (
+                    <span
+                      key={reason}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border font-semibold ${EXIT_REASON_STYLE[reason]}`}
+                    >
+                      {EXIT_REASON_LABEL[reason]}　{count}回
+                    </span>
+                  ))}
+                {Object.values(result.exitReasons).every(v => v === 0) && (
+                  <span className="text-xs text-slate-600">期間終了のみ（ルール/イグジット条件未到達）</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* 資産推移チャート */}
           {result.equityCurve.length > 1 && (
@@ -324,15 +446,24 @@ export default function Backtest({ data, stock }: Props) {
                           {trade.date}
                         </td>
                         <td className="px-4 py-2.5">
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              trade.type === 'buy'
-                                ? 'bg-emerald-900/50 text-emerald-400'
-                                : 'bg-red-900/50 text-red-400'
-                            }`}
-                          >
-                            {trade.type === 'buy' ? '買い' : '売り'}
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                trade.type === 'buy'
+                                  ? 'bg-emerald-900/50 text-emerald-400'
+                                  : 'bg-red-900/50 text-red-400'
+                              }`}
+                            >
+                              {trade.type === 'buy' ? '買い' : '売り'}
+                            </span>
+                            {trade.exitReason && trade.exitReason !== 'periodEnd' && (
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded border ${EXIT_REASON_STYLE[trade.exitReason]}`}
+                              >
+                                {EXIT_REASON_LABEL[trade.exitReason]}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-2.5 text-right font-mono text-slate-300">
                           ¥{trade.price.toLocaleString()}

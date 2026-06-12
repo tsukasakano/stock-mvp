@@ -6,7 +6,17 @@ export type BacktestConfig = {
   endDate: string;
   initialCapital: number;
   positionSize: number;
+  takeProfit?: number;    // 利益確定ライン (e.g. 0.05 = +5%)
+  trailingStop?: number;  // トレイリングストップ (e.g. 0.03 = 高値から-3%)
+  maxHoldDays?: number;   // 最大保有日数
 };
+
+export type ExitReason =
+  | 'takeProfit'
+  | 'trailingStop'
+  | 'maxHoldDays'
+  | 'ruleExit'
+  | 'periodEnd';
 
 export type BacktestTrade = {
   date: string;
@@ -15,6 +25,7 @@ export type BacktestTrade = {
   shares: number;
   capital: number;
   pnl: number;
+  exitReason?: ExitReason;
 };
 
 export type BacktestResult = {
@@ -27,6 +38,12 @@ export type BacktestResult = {
   sharpeRatio: number;
   totalTrades: number;
   equityCurve: { date: string; capital: number }[];
+  exitReasons: {
+    ruleExit: number;
+    takeProfit: number;
+    trailingStop: number;
+    maxHoldDays: number;
+  };
 };
 
 // ─── Indicator helpers (mirrors ruleEngine.ts logic) ─────────────────────────
@@ -140,6 +157,7 @@ export function runBacktest(
   data: ChartDataPoint[],
   allRules: TradeRule[],
 ): BacktestResult {
+  const emptyExitReasons = { ruleExit: 0, takeProfit: 0, trailingStop: 0, maxHoldDays: 0 };
   const empty: BacktestResult = {
     trades: [],
     finalCapital: config.initialCapital,
@@ -150,6 +168,7 @@ export function runBacktest(
     sharpeRatio: 0,
     totalTrades: 0,
     equityCurve: [],
+    exitReasons: emptyExitReasons,
   };
 
   const { rule, initialCapital, positionSize } = config;
@@ -160,12 +179,11 @@ export function runBacktest(
   );
   if (rangeData.length < 5) return empty;
 
-  // We use the full data array for indicator lookback, but trade only within rangeData
+  // Use the full data array for indicator lookback, trade only within rangeData
   const startGi = data.findIndex(d => d.date === rangeData[0].date);
   if (startGi < 0) return empty;
 
-  // If buy rule selected: this rule is the entry; all enabled sell rules are exit.
-  // If sell rule selected: all enabled buy rules are entry; this rule is the exit.
+  // Entry/exit rule assignment
   const entryRules: TradeRule[] =
     rule.type === 'buy'
       ? [rule]
@@ -179,10 +197,13 @@ export function runBacktest(
   let cash = initialCapital;
   let posShares = 0;
   let entryPrice = 0;
+  let entryRangeIdx = -1;
+  let positionHighPrice = 0; // highest close since entry (for trailing stop)
 
   const trades: BacktestTrade[] = [];
   const equityCurve: { date: string; capital: number }[] = [];
   const dailyReturns: number[] = [];
+  const exitReasonCounts = { ruleExit: 0, takeProfit: 0, trailingStop: 0, maxHoldDays: 0 };
   let prevDayEquity = initialCapital;
   let peakEquity = initialCapital;
   let maxDrawdown = 0;
@@ -193,13 +214,42 @@ export function runBacktest(
     const price = d.close;
     const isLast = ri === rangeData.length - 1;
 
+    // Update trailing stop high-water mark before exit checks
+    if (posShares > 0 && price > positionHighPrice) positionHighPrice = price;
+
     // Exit open long position
     if (posShares > 0) {
-      const shouldExit = isLast || exitRules.some(r => evalRuleAt(r, data, gi));
-      if (shouldExit) {
+      const holdDays = ri - entryRangeIdx;
+      let exitReason: ExitReason | null = null;
+
+      // Priority: takeProfit > trailingStop > maxHoldDays > ruleExit > periodEnd
+      if (
+        config.takeProfit !== undefined &&
+        price >= entryPrice * (1 + config.takeProfit)
+      ) {
+        exitReason = 'takeProfit';
+      } else if (
+        config.trailingStop !== undefined &&
+        positionHighPrice > 0 &&
+        price < positionHighPrice * (1 - config.trailingStop)
+      ) {
+        exitReason = 'trailingStop';
+      } else if (
+        config.maxHoldDays !== undefined &&
+        holdDays >= config.maxHoldDays
+      ) {
+        exitReason = 'maxHoldDays';
+      } else if (exitRules.some(r => evalRuleAt(r, data, gi))) {
+        exitReason = 'ruleExit';
+      } else if (isLast) {
+        exitReason = 'periodEnd';
+      }
+
+      if (exitReason) {
         const revenue = posShares * price;
         const pnl = revenue - entryPrice * posShares;
         cash += revenue;
+        if (exitReason !== 'periodEnd') exitReasonCounts[exitReason]++;
         trades.push({
           date: d.date,
           type: 'sell',
@@ -207,13 +257,16 @@ export function runBacktest(
           shares: posShares,
           capital: Math.round(cash),
           pnl: Math.round(pnl),
+          exitReason,
         });
         posShares = 0;
         entryPrice = 0;
+        entryRangeIdx = -1;
+        positionHighPrice = 0;
       }
     }
 
-    // Enter long position (not on last day to avoid immediate exit)
+    // Enter long position (not on last day)
     if (posShares === 0 && !isLast) {
       const shouldEnter = entryRules.some(r => evalRuleAt(r, data, gi));
       if (shouldEnter && cash > 0) {
@@ -221,6 +274,8 @@ export function runBacktest(
         if (sharesToBuy > 0) {
           entryPrice = price;
           posShares = sharesToBuy;
+          entryRangeIdx = ri;
+          positionHighPrice = price;
           cash -= sharesToBuy * price;
           trades.push({
             date: d.date,
@@ -245,7 +300,6 @@ export function runBacktest(
       dailyReturns.push(prevDayEquity > 0 ? (equity - prevDayEquity) / prevDayEquity : 0);
     }
     prevDayEquity = equity;
-
     equityCurve.push({ date: d.date, capital: Math.round(equity) });
   }
 
@@ -267,5 +321,6 @@ export function runBacktest(
     sharpeRatio: parseFloat(calcSharpe(dailyReturns).toFixed(2)),
     totalTrades: sellTrades.length,
     equityCurve,
+    exitReasons: exitReasonCounts,
   };
 }
