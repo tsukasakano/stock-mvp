@@ -11,12 +11,13 @@ import NisaManager from '@/components/NisaManager';
 import NewsSentiment from '@/components/NewsSentiment';
 import RuleEngine from '@/components/RuleEngine';
 import AlertPanel from '@/components/AlertPanel';
+import Backtest from '@/components/Backtest';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
 import { loadAlerts, saveAlerts } from '@/lib/ruleEngine';
 import type { ChartDataPoint, StockOption, NewsSentimentResult, AlertEntry } from '@/types/stock';
 
-type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules';
+type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'chart',     label: 'チャート・分析',    short: 'チャート' },
@@ -25,6 +26,7 @@ const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'nisa',      label: 'NISA管理',           short: 'NISA' },
   { id: 'news',      label: 'ニュース分析',        short: 'ニュース' },
   { id: 'rules',     label: '売買ルール',          short: 'ルール' },
+  { id: 'backtest',  label: 'バックテスト',        short: 'BT' },
 ];
 
 function ChartSkeleton() {
@@ -247,6 +249,16 @@ export default function Home() {
                   onClear={() => setAlerts([])}
                 />
               </div>
+            </div>
+          )}
+
+          {activeTab === 'backtest' && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+              <div className="flex items-baseline gap-2 mb-5">
+                <h2 className="text-sm font-semibold text-slate-200">バックテスト</h2>
+                <span className="text-xs text-slate-600">{stock.label}（{stock.value}）</span>
+              </div>
+              <Backtest data={chartData} stock={stock} />
             </div>
           )}
 
