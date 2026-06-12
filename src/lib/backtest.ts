@@ -37,6 +37,12 @@ function sma(data: ChartDataPoint[], period: number, idx: number): number | unde
   return slice.reduce((s, d) => s + d.close, 0) / period;
 }
 
+function volumeSMA(data: ChartDataPoint[], period: number, idx: number): number | undefined {
+  if (idx < period - 1) return undefined;
+  const slice = data.slice(idx - period + 1, idx + 1);
+  return slice.reduce((s, d) => s + d.volume, 0) / period;
+}
+
 function indicatorValue(
   indicator: RuleIndicator,
   data: ChartDataPoint[],
@@ -45,13 +51,21 @@ function indicatorValue(
   const d = data[idx];
   if (!d) return undefined;
   switch (indicator) {
-    case 'rsi':    return d.rsi;
-    case 'macd':   return d.macd;
-    case 'price':  return d.close;
-    case 'volume': return d.volume;
-    case 'ma5':    return sma(data, 5, idx);
-    case 'ma25':   return sma(data, 25, idx);
-    default:       return undefined;
+    case 'rsi':      return d.rsi;
+    case 'macd':     return d.macd;
+    case 'price':    return d.close;
+    case 'volume':   return d.volume;
+    case 'ma5':      return sma(data, 5, idx);
+    case 'ma25':     return sma(data, 25, idx);
+    case 'bbUpper':  return d.upperBand;
+    case 'bbLower':  return d.lowerBand;
+    case 'bbMid':    return d.middleBand;
+    case 'bbWidth': {
+      const u = d.upperBand, l = d.lowerBand;
+      return u !== undefined && l !== undefined ? u - l : undefined;
+    }
+    case 'volumeMA': return volumeSMA(data, 20, idx);
+    default:         return undefined;
   }
 }
 
@@ -68,26 +82,38 @@ function evalConditionAt(
     const prev = indicatorValue(cond.indicator, data, idx - 1);
     if (prev === undefined) return false;
 
-    let thrCur = cond.value;
-    let thrPrev = cond.value;
-    if (cond.indicator === 'ma5' && cond.value === 25) {
-      const mc = sma(data, 25, idx);
-      const mp = sma(data, 25, idx - 1);
-      if (mc === undefined || mp === undefined) return false;
-      thrCur = mc;
-      thrPrev = mp;
+    let thrCur: number | undefined;
+    let thrPrev: number | undefined;
+
+    if (cond.compareIndicator) {
+      thrCur  = indicatorValue(cond.compareIndicator, data, idx);
+      thrPrev = indicatorValue(cond.compareIndicator, data, idx - 1);
+    } else {
+      thrCur = thrPrev = cond.value;
+      // 後方互換: ma5 crossover value=25 → MA5がMA25を上抜け
+      if (cond.indicator === 'ma5' && cond.value === 25) {
+        thrCur  = sma(data, 25, idx);
+        thrPrev = sma(data, 25, idx - 1);
+      }
     }
+
+    if (thrCur === undefined || thrPrev === undefined) return false;
 
     return cond.operator === 'crossover'
       ? prev <= thrPrev && cur > thrCur
       : prev >= thrPrev && cur < thrCur;
   }
 
+  const threshold = cond.compareIndicator
+    ? indicatorValue(cond.compareIndicator, data, idx)
+    : cond.value;
+  if (threshold === undefined) return false;
+
   switch (cond.operator) {
-    case '>':  return cur > cond.value;
-    case '<':  return cur < cond.value;
-    case '>=': return cur >= cond.value;
-    case '<=': return cur <= cond.value;
+    case '>':  return cur > threshold;
+    case '<':  return cur < threshold;
+    case '>=': return cur >= threshold;
+    case '<=': return cur <= threshold;
     default:   return false;
   }
 }

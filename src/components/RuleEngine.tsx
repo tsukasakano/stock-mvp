@@ -26,12 +26,24 @@ interface Props {
 }
 
 const INDICATOR_LABELS: Record<RuleIndicator, string> = {
-  rsi: 'RSI(14)',
-  macd: 'MACD',
-  price: '株価',
-  ma5: 'MA5',
-  ma25: 'MA25',
-  volume: '出来高',
+  rsi:      'RSI(14)',
+  macd:     'MACD',
+  price:    '株価',
+  ma5:      'MA5',
+  ma25:     'MA25',
+  volume:   '出来高',
+  bbUpper:  'BB上限',
+  bbLower:  'BB下限',
+  bbMid:    'BB中央',
+  bbWidth:  'BBバンド幅',
+  volumeMA: '出来高MA20',
+};
+
+const INDICATOR_HINTS: Partial<Record<RuleIndicator, string>> = {
+  bbUpper:  '価格がこの水準を超えると買われ過ぎ',
+  bbLower:  '価格がこの水準を下回ると売られ過ぎ',
+  bbWidth:  'バンド幅が小さいほどスクイーズ（大きな動き前兆）',
+  volumeMA: '直近20日平均出来高との比較に使用',
 };
 
 const OPERATOR_LABELS: Record<RuleOperator, string> = {
@@ -266,7 +278,9 @@ export default function RuleEngine({ data, stock, onNewAlerts }: Props) {
                   </div>
                   <p className="text-[10px] text-slate-600 mt-0.5">
                     {rule.conditions.map(c =>
-                      `${INDICATOR_LABELS[c.indicator]} ${OPERATOR_LABELS[c.operator]} ${c.value}`
+                      `${INDICATOR_LABELS[c.indicator]} ${OPERATOR_LABELS[c.operator]} ${
+                        c.compareIndicator ? INDICATOR_LABELS[c.compareIndicator] : c.value
+                      }`
                     ).join(` ${rule.logic} `)}
                   </p>
                 </div>
@@ -328,7 +342,8 @@ export default function RuleEngine({ data, stock, onNewAlerts }: Props) {
             <label className="text-xs text-slate-500 block mb-2">条件</label>
             <div className="space-y-2">
               {form.conditions.map((cond, idx) => (
-                <div key={idx} className="flex gap-2 items-center flex-wrap">
+                <div key={idx} className="space-y-1.5">
+                  <div className="flex gap-2 items-center flex-wrap">
                   <select
                     value={cond.indicator}
                     onChange={e => updateCondition(idx, { indicator: e.target.value as RuleIndicator })}
@@ -360,6 +375,12 @@ export default function RuleEngine({ data, stock, onNewAlerts }: Props) {
                     >
                       ✕
                     </button>
+                  )}
+                  </div>
+                  {INDICATOR_HINTS[cond.indicator] && (
+                    <p className="text-[10px] text-slate-600 pl-0.5">
+                      ※ {INDICATOR_HINTS[cond.indicator]}
+                    </p>
                   )}
                 </div>
               ))}

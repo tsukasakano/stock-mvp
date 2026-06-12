@@ -57,13 +57,16 @@ export interface NewsSentimentResult {
   overallScore: number;
 }
 
-export type RuleIndicator = 'rsi' | 'macd' | 'price' | 'ma5' | 'ma25' | 'volume';
+export type RuleIndicator =
+  | 'rsi' | 'macd' | 'price' | 'ma5' | 'ma25' | 'volume'
+  | 'bbUpper' | 'bbLower' | 'bbMid' | 'bbWidth' | 'volumeMA';
 export type RuleOperator = '>' | '<' | '>=' | '<=' | 'crossover' | 'crossunder';
 
 export interface RuleCondition {
   indicator: RuleIndicator;
   operator: RuleOperator;
   value: number;
+  compareIndicator?: RuleIndicator; // 別の指標と動的比較する場合に指定
 }
 
 export interface TradeRule {
