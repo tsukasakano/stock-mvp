@@ -12,14 +12,16 @@ import NewsSentiment from '@/components/NewsSentiment';
 import RuleEngine from '@/components/RuleEngine';
 import AlertPanel from '@/components/AlertPanel';
 import Backtest from '@/components/Backtest';
+import Screening from '@/components/Screening';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
 import { loadAlerts, saveAlerts } from '@/lib/ruleEngine';
 import type { ChartDataPoint, StockOption, NewsSentimentResult, AlertEntry } from '@/types/stock';
 
-type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest';
+type Tab = 'screening' | 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
+  { id: 'screening', label: '🔍 スクリーニング',  short: '🔍' },
   { id: 'chart',     label: 'チャート・分析',    short: 'チャート' },
   { id: 'journal',   label: 'トレード日誌',       short: '日誌' },
   { id: 'simulator', label: '損益シミュレーター', short: '損益' },
@@ -55,6 +57,11 @@ export default function Home() {
   useEffect(() => {
     saveAlerts(alerts);
   }, [alerts]);
+
+  const handleAnalyze = useCallback((s: StockOption) => {
+    setStock(s);
+    setActiveTab('chart');
+  }, []);
 
   const handleNewAlerts = useCallback((newAlerts: AlertEntry[]) => {
     setAlerts(prev => {
@@ -163,6 +170,12 @@ export default function Home() {
 
         {/* タブコンテンツ */}
         <div key={activeTab} className="tab-content">
+
+          {activeTab === 'screening' && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+              <Screening onAnalyze={handleAnalyze} />
+            </div>
+          )}
 
           {activeTab === 'chart' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">

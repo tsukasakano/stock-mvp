@@ -1,0 +1,283 @@
+{
+  "updatedAt": "2026-06-13",
+  "candidates": [
+    {
+      "symbol": "2914.T",
+      "name": "JT",
+      "score": 4,
+      "price": 6177,
+      "rsi": 53.9,
+      "macd": 32.7,
+      "volume_ratio": 1.79,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "8316.T",
+      "name": "三井住友FG",
+      "score": 4,
+      "price": 6406,
+      "rsi": 64.9,
+      "macd": 157.77,
+      "volume_ratio": 1.52,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "9433.T",
+      "name": "KDDI",
+      "score": 4,
+      "price": 2769,
+      "rsi": 64.9,
+      "macd": 28.34,
+      "volume_ratio": 1.41,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "8035.T",
+      "name": "東京エレクトロン",
+      "score": 4,
+      "price": 68000,
+      "rsi": 72.6,
+      "macd": 4271.02,
+      "volume_ratio": 1.77,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "9022.T",
+      "name": "東海旅客鉄道",
+      "score": 3,
+      "price": 3365,
+      "rsi": 35.0,
+      "macd": -107.66,
+      "volume_ratio": 1.32,
+      "signals": [
+        "RSI売られ過ぎ",
+        "MACD上昇",
+        "出来高増加"
+      ]
+    },
+    {
+      "symbol": "5401.T",
+      "name": "日本製鉄",
+      "score": 3,
+      "price": 552,
+      "rsi": 48.0,
+      "macd": -7.39,
+      "volume_ratio": 1.13,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "8802.T",
+      "name": "三菱地所",
+      "score": 3,
+      "price": 4196,
+      "rsi": 55.6,
+      "macd": -63.87,
+      "volume_ratio": 0.96,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "6752.T",
+      "name": "パナソニック",
+      "score": 3,
+      "price": 3800,
+      "rsi": 57.4,
+      "macd": 160.45,
+      "volume_ratio": 1.34,
+      "signals": [
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "7261.T",
+      "name": "マツダ",
+      "score": 3,
+      "price": 1132,
+      "rsi": 59.1,
+      "macd": 14.61,
+      "volume_ratio": 1.21,
+      "signals": [
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "8306.T",
+      "name": "三菱UFJ",
+      "score": 3,
+      "price": 3162,
+      "rsi": 60.7,
+      "macd": 72.8,
+      "volume_ratio": 1.14,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "4661.T",
+      "name": "オリエンタルランド",
+      "score": 3,
+      "price": 2264,
+      "rsi": 62.5,
+      "macd": -22.03,
+      "volume_ratio": 1.08,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "9602.T",
+      "name": "東宝",
+      "score": 3,
+      "price": 1312,
+      "rsi": 65.6,
+      "macd": -26.41,
+      "volume_ratio": 0.71,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "9983.T",
+      "name": "ファーストリテイリング",
+      "score": 3,
+      "price": 80530,
+      "rsi": 66.6,
+      "macd": 1813.88,
+      "volume_ratio": 1.33,
+      "signals": [
+        "上昇トレンド",
+        "出来高増加",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "3382.T",
+      "name": "セブン&アイ",
+      "score": 3,
+      "price": 1946,
+      "rsi": 69.3,
+      "macd": -2.3,
+      "volume_ratio": 1.12,
+      "signals": [
+        "MACD上昇",
+        "上昇トレンド",
+        "BB中央より上"
+      ]
+    },
+    {
+      "symbol": "8031.T",
+      "name": "三井物産",
+      "score": 2,
+      "price": 4886,
+      "rsi": 9.7,
+      "macd": -248.37,
+      "volume_ratio": 1.41,
+      "signals": [
+        "RSI売られ過ぎ",
+        "出来高増加"
+      ]
+    },
+    {
+      "symbol": "8053.T",
+      "name": "住友商事",
+      "score": 2,
+      "price": 6259,
+      "rsi": 11.4,
+      "macd": -99.72,
+      "volume_ratio": 1.29,
+      "signals": [
+        "RSI売られ過ぎ",
+        "出来高増加"
+      ]
+    },
+    {
+      "symbol": "6758.T",
+      "name": "ソニーグループ",
+      "score": 2,
+      "price": 3292,
+      "rsi": 30.7,
+      "macd": -6.43,
+      "volume_ratio": 1.35,
+      "signals": [
+        "RSI売られ過ぎ",
+        "出来高増加"
+      ]
+    },
+    {
+      "symbol": "9020.T",
+      "name": "東日本旅客鉄道",
+      "score": 2,
+      "price": 3404,
+      "rsi": 34.2,
+      "macd": -54.97,
+      "volume_ratio": 0.98,
+      "signals": [
+        "RSI売られ過ぎ",
+        "MACD上昇"
+      ]
+    },
+    {
+      "symbol": "4519.T",
+      "name": "中外製薬",
+      "score": 2,
+      "price": 7450,
+      "rsi": 35.2,
+      "macd": -201.4,
+      "volume_ratio": 1.0,
+      "signals": [
+        "RSI売られ過ぎ",
+        "MACD上昇"
+      ]
+    },
+    {
+      "symbol": "6367.T",
+      "name": "ダイキン工業",
+      "score": 2,
+      "price": 23030,
+      "rsi": 36.0,
+      "macd": 114.79,
+      "volume_ratio": 1.21,
+      "signals": [
+        "RSI売られ過ぎ",
+        "出来高増加"
+      ]
+    }
+  ]
+}

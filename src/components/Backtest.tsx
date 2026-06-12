@@ -10,6 +10,7 @@ import { STOCKS } from '@/lib/stocks';
 import { loadRules } from '@/lib/ruleEngine';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData } from '@/lib/api';
+import { fetchHistoricalData } from '@/lib/historicalData';
 import {
   runBacktest, runBacktestMultiple,
   type BacktestResult, type ExitReason, type StockBacktestResult,
@@ -123,6 +124,11 @@ export default function Backtest({ data, stock }: Props) {
   const [trailingStop, setTrailingStop] = useState('3');
   const [maxHoldDays, setMaxHoldDays] = useState('20');
 
+  const [dataSourceMode, setDataSourceMode] = useState<'mock' | 'real'>('mock');
+  const [realChartData, setRealChartData] = useState<ChartDataPoint[]>([]);
+  const [realDataLoading, setRealDataLoading] = useState(false);
+  const [realDataError, setRealDataError] = useState<string | null>(null);
+
   const [multiMode, setMultiMode] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResults, setMultiResults] = useState<StockBacktestResult[]>([]);
@@ -130,8 +136,32 @@ export default function Backtest({ data, stock }: Props) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<OptimizeSuggestion | null>(null);
 
+  // リアルデータ取得
+  useEffect(() => {
+    if (dataSourceMode !== 'real') return;
+    let cancelled = false;
+    setRealDataLoading(true);
+    setRealDataError(null);
+    setResult(null);
+    setMultiResults([]);
+    fetchHistoricalData(`${stock.value}.T`)
+      .then(raw => {
+        if (cancelled) return;
+        if (!raw) {
+          setRealDataError('リアルデータが見つかりません。fetch_historical.py を実行してください。');
+          return;
+        }
+        setRealChartData(buildChartData(raw));
+      })
+      .finally(() => { if (!cancelled) setRealDataLoading(false); });
+    return () => { cancelled = true; };
+  }, [dataSourceMode, stock]);
+
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [data, stock]);
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [multiMode]);
+  useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [dataSourceMode]);
+
+  const activeData = dataSourceMode === 'real' ? realChartData : data;
 
   const baseConfig = useCallback(() => {
     const rule = rules.find(r => r.id === selectedRuleId);
@@ -167,16 +197,16 @@ export default function Backtest({ data, stock }: Props) {
         setMultiLoading(false);
       }
     } else {
-      if (data.length < 5) return;
+      if (activeData.length < 5) return;
       setResult(
         runBacktest(
-          { ...cfg, startDate: data[0].date, endDate: data[data.length - 1].date },
-          data,
+          { ...cfg, startDate: activeData[0].date, endDate: activeData[activeData.length - 1].date },
+          activeData,
           rules,
         ),
       );
     }
-  }, [baseConfig, multiMode, data, rules]);
+  }, [baseConfig, multiMode, activeData, rules]);
 
   const handleAiOptimize = useCallback(async () => {
     const rule = rules.find(r => r.id === selectedRuleId);
@@ -234,20 +264,61 @@ export default function Backtest({ data, stock }: Props) {
 
       {/* ─── 設定パネル ─────────────────────────────── */}
       <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">バックテスト設定</p>
-          {/* 複数銘柄トグル */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <span className="text-xs text-slate-400">全銘柄同時テスト</span>
-            <button
-              onClick={() => setMultiMode(v => !v)}
-              className={`relative w-9 h-5 rounded-full transition-colors ${multiMode ? 'bg-blue-600' : 'bg-slate-700'}`}
-              aria-label="全銘柄同時テスト切り替え"
-            >
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${multiMode ? 'translate-x-4' : 'translate-x-0'}`} />
-            </button>
-          </label>
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* データソーストグル */}
+            <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
+              {(['mock', 'real'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setDataSourceMode(mode)}
+                  className={`text-[10px] px-2.5 py-1 rounded-md transition-colors font-medium ${
+                    dataSourceMode === mode
+                      ? mode === 'real'
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-slate-600 text-slate-100'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {mode === 'mock' ? 'モック（180日）' : 'リアル（5年）'}
+                </button>
+              ))}
+            </div>
+            {/* 複数銘柄トグル */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <span className="text-xs text-slate-400">全銘柄同時テスト</span>
+              <button
+                onClick={() => setMultiMode(v => !v)}
+                className={`relative w-9 h-5 rounded-full transition-colors ${multiMode ? 'bg-blue-600' : 'bg-slate-700'}`}
+                aria-label="全銘柄同時テスト切り替え"
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${multiMode ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </label>
+          </div>
         </div>
+
+        {/* リアルデータ状態表示 */}
+        {dataSourceMode === 'real' && (
+          <div className={`rounded-lg px-3 py-2 text-xs border ${
+            realDataError
+              ? 'bg-red-950/40 border-red-900/60 text-red-400'
+              : realDataLoading
+              ? 'bg-slate-900 border-slate-700 text-slate-400'
+              : realChartData.length > 0
+              ? 'bg-emerald-950/30 border-emerald-900/50 text-emerald-400'
+              : 'bg-slate-900 border-slate-700 text-slate-500'
+          }`}>
+            {realDataError
+              ? realDataError
+              : realDataLoading
+              ? '履歴データを読み込み中...'
+              : realChartData.length > 0
+              ? `リアルデータ読み込み完了 — ${realChartData[0]?.date} 〜 ${realChartData[realChartData.length - 1]?.date}（${realChartData.length}日）`
+              : 'データなし'}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -320,7 +391,7 @@ export default function Backtest({ data, stock }: Props) {
 
         <button
           onClick={handleRun}
-          disabled={rules.length === 0 || data.length < 5 || multiLoading}
+          disabled={rules.length === 0 || activeData.length < 5 || multiLoading || realDataLoading}
           className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {multiLoading ? '全銘柄データ取得中...' : 'バックテスト実行'}
