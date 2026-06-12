@@ -73,6 +73,19 @@ export const DEFAULT_RULES: TradeRule[] = [
     logic: 'AND',
     enabled: true,
   },
+  {
+    id: 'preset-ai-rsi-relaxed',
+    name: 'AI提案緩和版RSIルール',
+    type: 'buy',
+    conditions: [
+      { indicator: 'rsi',            operator: '<',  value: 30   },
+      { indicator: 'rsiDivergence',  operator: '>=', value: 1    },
+      { indicator: 'priceVsMA20',    operator: '<',  value: 1.05 },
+      { indicator: 'volumeRatio',    operator: '>',  value: 1.2  },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
 ];
 
 // ─── ストレージ ───────────────────────────────────────────
