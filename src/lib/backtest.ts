@@ -150,6 +150,15 @@ function calcSharpe(dailyReturns: number[]): number {
   return std === 0 ? 0 : (mean / std) * Math.sqrt(252);
 }
 
+// ─── Multi-stock result type ──────────────────────────────────────────────────
+
+export type StockBacktestResult = {
+  stockCode: string;
+  stockLabel: string;
+  color: string;
+  result: BacktestResult;
+};
+
 // ─── Main backtest engine ─────────────────────────────────────────────────────
 
 export function runBacktest(
@@ -323,4 +332,27 @@ export function runBacktest(
     equityCurve,
     exitReasons: exitReasonCounts,
   };
+}
+
+// ─── Multi-stock backtest ────────────────────────────────────────────────────
+
+export function runBacktestMultiple(
+  config: Omit<BacktestConfig, 'startDate' | 'endDate'>,
+  stocks: { code: string; label: string; color: string; data: ChartDataPoint[] }[],
+  allRules: TradeRule[],
+): StockBacktestResult[] {
+  return stocks.map(({ code, label, color, data }) => ({
+    stockCode: code,
+    stockLabel: label,
+    color,
+    result: runBacktest(
+      {
+        ...config,
+        startDate: data[0]?.date ?? '',
+        endDate: data[data.length - 1]?.date ?? '',
+      },
+      data,
+      allRules,
+    ),
+  }));
 }
