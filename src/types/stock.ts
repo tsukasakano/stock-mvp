@@ -56,3 +56,39 @@ export interface NewsSentimentResult {
   overallSentiment: 'positive' | 'neutral' | 'negative';
   overallScore: number;
 }
+
+export type RuleIndicator = 'rsi' | 'macd' | 'price' | 'ma5' | 'ma25' | 'volume';
+export type RuleOperator = '>' | '<' | '>=' | '<=' | 'crossover' | 'crossunder';
+
+export interface RuleCondition {
+  indicator: RuleIndicator;
+  operator: RuleOperator;
+  value: number;
+}
+
+export interface TradeRule {
+  id: string;
+  name: string;
+  type: 'buy' | 'sell';
+  conditions: RuleCondition[];
+  logic: 'AND' | 'OR';
+  enabled: boolean;
+}
+
+export interface RuleSignal {
+  ruleId: string;
+  ruleName: string;
+  type: 'buy' | 'sell';
+  triggered: boolean;
+}
+
+export interface AlertEntry {
+  id: string;
+  stockCode: string;
+  stockLabel: string;
+  ruleName: string;
+  signal: 'buy' | 'sell';
+  price: number;
+  triggeredAt: string;
+  read: boolean;
+}

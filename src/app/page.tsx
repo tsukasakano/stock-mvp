@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import StockSelector from '@/components/StockSelector';
 import { STOCKS } from '@/lib/stocks';
 import Chart from '@/components/Chart';
@@ -9,11 +9,14 @@ import Journal from '@/components/Journal';
 import Simulator from '@/components/Simulator';
 import NisaManager from '@/components/NisaManager';
 import NewsSentiment from '@/components/NewsSentiment';
+import RuleEngine from '@/components/RuleEngine';
+import AlertPanel from '@/components/AlertPanel';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
-import type { ChartDataPoint, StockOption, NewsSentimentResult } from '@/types/stock';
+import { loadAlerts, saveAlerts } from '@/lib/ruleEngine';
+import type { ChartDataPoint, StockOption, NewsSentimentResult, AlertEntry } from '@/types/stock';
 
-type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news';
+type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'chart',     label: 'チャート・分析',    short: 'チャート' },
@@ -21,6 +24,7 @@ const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'simulator', label: '損益シミュレーター', short: '損益' },
   { id: 'nisa',      label: 'NISA管理',           short: 'NISA' },
   { id: 'news',      label: 'ニュース分析',        short: 'ニュース' },
+  { id: 'rules',     label: '売買ルール',          short: 'ルール' },
 ];
 
 function ChartSkeleton() {
@@ -41,6 +45,23 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('chart');
   const [newsResult, setNewsResult] = useState<NewsSentimentResult | null>(null);
+  const [alerts, setAlerts] = useState<AlertEntry[]>(() => {
+    if (typeof window !== 'undefined') return loadAlerts();
+    return [];
+  });
+
+  useEffect(() => {
+    saveAlerts(alerts);
+  }, [alerts]);
+
+  const handleNewAlerts = useCallback((newAlerts: AlertEntry[]) => {
+    setAlerts(prev => {
+      const existingIds = new Set(prev.map(a => a.id));
+      const deduplicated = newAlerts.filter(a => !existingIds.has(a.id));
+      if (deduplicated.length === 0) return prev;
+      return [...deduplicated, ...prev];
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,20 +135,28 @@ export default function Home() {
 
         {/* タブナビ */}
         <div className="flex overflow-x-auto scroll-hide gap-1 bg-slate-900 p-1.5 rounded-2xl border border-slate-800/60">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`shrink-0 sm:flex-1 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-slate-700 text-slate-100 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
-              }`}
-            >
-              <span className="sm:hidden">{tab.short}</span>
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
+          {TABS.map(tab => {
+            const unreadCount = tab.id === 'rules' ? alerts.filter(a => !a.read).length : 0;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative shrink-0 sm:flex-1 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-slate-700 text-slate-100 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                }`}
+              >
+                <span className="sm:hidden">{tab.short}</span>
+                <span className="hidden sm:inline">{tab.label}</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full bg-red-600 text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* タブコンテンツ */}
@@ -193,6 +222,31 @@ export default function Home() {
                 <span className="text-xs text-slate-600">{stock.label}（{stock.value}）</span>
               </div>
               <NewsSentiment stock={stock} onResult={setNewsResult} />
+            </div>
+          )}
+
+          {activeTab === 'rules' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+                <div className="flex items-baseline gap-2 mb-4">
+                  <h2 className="text-sm font-semibold text-slate-200">売買ルールエンジン</h2>
+                  <span className="text-xs text-slate-600">{stock.label}（{stock.value}）</span>
+                </div>
+                <RuleEngine
+                  data={chartData}
+                  stock={stock}
+                  onNewAlerts={handleNewAlerts}
+                />
+              </div>
+              <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+                <h2 className="text-sm font-semibold text-slate-200 mb-4">アラート履歴</h2>
+                <AlertPanel
+                  alerts={alerts}
+                  onMarkRead={id => setAlerts(prev => prev.map(a => a.id === id ? { ...a, read: true } : a))}
+                  onMarkAllRead={() => setAlerts(prev => prev.map(a => ({ ...a, read: true })))}
+                  onClear={() => setAlerts([])}
+                />
+              </div>
             </div>
           )}
 
