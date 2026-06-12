@@ -26,24 +26,30 @@ interface Props {
 }
 
 const INDICATOR_LABELS: Record<RuleIndicator, string> = {
-  rsi:      'RSI(14)',
-  macd:     'MACD',
-  price:    '株価',
-  ma5:      'MA5',
-  ma25:     'MA25',
-  volume:   '出来高',
-  bbUpper:  'BB上限',
-  bbLower:  'BB下限',
-  bbMid:    'BB中央',
-  bbWidth:  'BBバンド幅',
-  volumeMA: '出来高MA20',
+  rsi:            'RSI(14)',
+  macd:           'MACD',
+  price:          '株価',
+  ma5:            'MA5',
+  ma25:           'MA25',
+  volume:         '出来高',
+  bbUpper:        'BB上限',
+  bbLower:        'BB下限',
+  bbMid:          'BB中央',
+  bbWidth:        'BBバンド幅',
+  volumeMA:       '出来高MA20',
+  rsiDivergence:  'RSIダイバージェンス',
+  priceVsMA20:    '価格/MA20比率',
+  volumeRatio:    '出来高比率',
 };
 
 const INDICATOR_HINTS: Partial<Record<RuleIndicator, string>> = {
-  bbUpper:  '価格がこの水準を超えると買われ過ぎ',
-  bbLower:  '価格がこの水準を下回ると売られ過ぎ',
-  bbWidth:  'バンド幅が小さいほどスクイーズ（大きな動き前兆）',
-  volumeMA: '直近20日平均出来高との比較に使用',
+  bbUpper:        '価格がこの水準を超えると買われ過ぎ',
+  bbLower:        '価格がこの水準を下回ると売られ過ぎ',
+  bbWidth:        'バンド幅が小さいほどスクイーズ（大きな動き前兆）',
+  volumeMA:       '直近20日平均出来高との比較に使用',
+  rsiDivergence:  '価格下落中にRSIが上昇する反転シグナル（1=発生・0=未発生）',
+  priceVsMA20:    '1.0以下で移動平均線を下回っている状態',
+  volumeRatio:    '20日平均出来高との比率。1.5以上で出来高急増',
 };
 
 const OPERATOR_LABELS: Record<RuleOperator, string> = {

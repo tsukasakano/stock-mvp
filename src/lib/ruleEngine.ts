@@ -60,6 +60,19 @@ export const DEFAULT_RULES: TradeRule[] = [
     logic: 'AND',
     enabled: true,
   },
+  {
+    id: 'preset-ai-rsi-enhanced',
+    name: 'AI提案強化版RSIルール',
+    type: 'buy',
+    conditions: [
+      { indicator: 'rsi',            operator: '<',  value: 30  },
+      { indicator: 'rsiDivergence',  operator: '>=', value: 1   },
+      { indicator: 'priceVsMA20',    operator: '<',  value: 1.0 },
+      { indicator: 'volumeRatio',    operator: '>',  value: 1.5 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
 ];
 
 // ─── ストレージ ───────────────────────────────────────────
@@ -130,6 +143,22 @@ function indicatorValue(
       return u !== undefined && l !== undefined ? u - l : undefined;
     }
     case 'volumeMA': return volumeSMA(data, 20, idx);
+    case 'rsiDivergence': {
+      if (idx < 4) return undefined;
+      const rsiCur  = data[idx].rsi;
+      const rsiPrev = data[idx - 4].rsi;
+      if (rsiCur === undefined || rsiPrev === undefined) return undefined;
+      // 直近5日で価格下落 かつ RSI上昇 → ダイバージェンス = 1
+      return data[idx].close < data[idx - 4].close && rsiCur > rsiPrev ? 1 : 0;
+    }
+    case 'priceVsMA20': {
+      const ma20 = sma(data, 20, idx);
+      return ma20 !== undefined && ma20 > 0 ? d.close / ma20 : undefined;
+    }
+    case 'volumeRatio': {
+      const vma = volumeSMA(data, 20, idx);
+      return vma !== undefined && vma > 0 ? d.volume / vma : undefined;
+    }
     default:         return undefined;
   }
 }

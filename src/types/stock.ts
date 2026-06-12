@@ -59,7 +59,8 @@ export interface NewsSentimentResult {
 
 export type RuleIndicator =
   | 'rsi' | 'macd' | 'price' | 'ma5' | 'ma25' | 'volume'
-  | 'bbUpper' | 'bbLower' | 'bbMid' | 'bbWidth' | 'volumeMA';
+  | 'bbUpper' | 'bbLower' | 'bbMid' | 'bbWidth' | 'volumeMA'
+  | 'rsiDivergence' | 'priceVsMA20' | 'volumeRatio';
 export type RuleOperator = '>' | '<' | '>=' | '<=' | 'crossover' | 'crossunder';
 
 export interface RuleCondition {
