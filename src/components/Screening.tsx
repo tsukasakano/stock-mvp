@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { STOCKS } from '@/lib/stocks';
+import { ALL_STOCKS } from '@/lib/stocks';
 import type { ScreeningCandidate, ScreeningResult } from '@/app/api/screening/route';
 import type { StockOption } from '@/types/stock';
 
@@ -41,7 +41,7 @@ function CandidateCard({
   onAnalyze: (stock: StockOption) => void;
 }) {
   const code = candidate.symbol.replace('.T', '');
-  const matchStock = STOCKS.find(s => s.value === code);
+  const matchStock = ALL_STOCKS.find(s => s.value === code);
 
   return (
     <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/60 hover:border-slate-700 transition-colors space-y-3">
@@ -102,9 +102,9 @@ function CandidateCard({
         onClick={() => matchStock && onAnalyze(matchStock)}
         disabled={!matchStock}
         className="w-full py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:bg-slate-800 disabled:text-slate-600"
-        title={matchStock ? `${candidate.name}を分析` : 'この銘柄はチャートで未対応です'}
+        title={matchStock ? `${candidate.name}を分析` : ''}
       >
-        {matchStock ? 'この銘柄を分析 →' : 'チャート未対応'}
+        この銘柄を分析 →
       </button>
     </div>
   );

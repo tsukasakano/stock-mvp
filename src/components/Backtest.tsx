@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import type { ChartDataPoint, StockOption, TradeRule } from '@/types/stock';
-import { STOCKS } from '@/lib/stocks';
+import { STOCKS, ALL_STOCKS } from '@/lib/stocks';
 import { loadRules } from '@/lib/ruleEngine';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData } from '@/lib/api';
-import { fetchHistoricalData } from '@/lib/historicalData';
+import { fetchHistoricalData, filterByPeriod, type RealPeriod } from '@/lib/historicalData';
 import {
   runBacktest, runBacktestMultiple,
   type BacktestResult, type ExitReason, type StockBacktestResult,
@@ -124,10 +124,12 @@ export default function Backtest({ data, stock }: Props) {
   const [trailingStop, setTrailingStop] = useState('3');
   const [maxHoldDays, setMaxHoldDays] = useState('20');
 
-  const [dataSourceMode, setDataSourceMode] = useState<'mock' | 'real'>('mock');
-  const [realChartData, setRealChartData] = useState<ChartDataPoint[]>([]);
+  type DataPeriod = 'mock' | RealPeriod;
+  const [dataSourceMode, setDataSourceMode] = useState<DataPeriod>('mock');
+  const [realAllData, setRealAllData] = useState<ChartDataPoint[]>([]);
   const [realDataLoading, setRealDataLoading] = useState(false);
   const [realDataError, setRealDataError] = useState<string | null>(null);
+  const realDataFor = useRef<string | null>(null);
 
   const [multiMode, setMultiMode] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
@@ -136,32 +138,42 @@ export default function Backtest({ data, stock }: Props) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<OptimizeSuggestion | null>(null);
 
-  // リアルデータ取得
+  // リアルデータ取得（銘柄変更 or モード切替時のみ再fetch）
   useEffect(() => {
-    if (dataSourceMode !== 'real') return;
+    if (dataSourceMode === 'mock') return;
+    if (realDataFor.current === stock.value) return; // already loaded for this stock
     let cancelled = false;
     setRealDataLoading(true);
     setRealDataError(null);
-    setResult(null);
-    setMultiResults([]);
+    setRealAllData([]);
+    realDataFor.current = stock.value;
     fetchHistoricalData(`${stock.value}.T`)
       .then(raw => {
         if (cancelled) return;
         if (!raw) {
           setRealDataError('リアルデータが見つかりません。fetch_historical.py を実行してください。');
+          realDataFor.current = null;
           return;
         }
-        setRealChartData(buildChartData(raw));
+        setRealAllData(buildChartData(raw));
       })
       .finally(() => { if (!cancelled) setRealDataLoading(false); });
     return () => { cancelled = true; };
-  }, [dataSourceMode, stock]);
+  }, [dataSourceMode, stock.value]);
 
+  // モード・銘柄変更時は結果をクリア
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [data, stock]);
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [multiMode]);
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [dataSourceMode]);
 
-  const activeData = dataSourceMode === 'real' ? realChartData : data;
+  const isRealMode = dataSourceMode !== 'mock';
+
+  const activeData = useMemo(() => {
+    if (!isRealMode) return data;
+    if (realAllData.length === 0) return [];
+    if (dataSourceMode === 'real-5y') return realAllData;
+    return filterByPeriod(realAllData, dataSourceMode);
+  }, [isRealMode, dataSourceMode, data, realAllData]);
 
   const baseConfig = useCallback(() => {
     const rule = rules.find(r => r.id === selectedRuleId);
@@ -182,14 +194,23 @@ export default function Backtest({ data, stock }: Props) {
     setAiSuggestion(null);
 
     if (multiMode) {
+      const targetStocks = isRealMode ? ALL_STOCKS.filter(s => s.value !== '6764') : STOCKS;
       setMultiLoading(true);
       try {
-        const stockInputs = await Promise.all(
-          STOCKS.map(async s => {
+        const stockInputs = (await Promise.all(
+          targetStocks.map(async s => {
+            if (isRealMode) {
+              const raw = await fetchHistoricalData(`${s.value}.T`);
+              if (!raw) return null;
+              const all = buildChartData(raw);
+              const filtered = dataSourceMode === 'real-5y' ? all : filterByPeriod(all, dataSourceMode as RealPeriod);
+              if (filtered.length < 5) return null;
+              return { code: s.value, label: s.label, color: s.color, data: filtered };
+            }
             const { data: raw } = await fetchStockData(s.value);
             return { code: s.value, label: s.label, color: s.color, data: buildChartData(raw) };
           }),
-        );
+        )).filter((x): x is NonNullable<typeof x> => x !== null);
         setMultiResults(runBacktestMultiple(cfg, stockInputs, rules));
       } catch (e) {
         console.error('[backtest multi]', e);
@@ -206,7 +227,7 @@ export default function Backtest({ data, stock }: Props) {
         ),
       );
     }
-  }, [baseConfig, multiMode, activeData, rules]);
+  }, [baseConfig, multiMode, activeData, rules, isRealMode, dataSourceMode]);
 
   const handleAiOptimize = useCallback(async () => {
     const rule = rules.find(r => r.id === selectedRuleId);
@@ -268,20 +289,25 @@ export default function Backtest({ data, stock }: Props) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">バックテスト設定</p>
           <div className="flex items-center gap-3 flex-wrap">
             {/* データソーストグル */}
-            <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
-              {(['mock', 'real'] as const).map(mode => (
+            <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
+              {([
+                { id: 'mock',     label: 'モック' },
+                { id: 'real-1y',  label: 'リアル1年' },
+                { id: 'real-3y',  label: 'リアル3年' },
+                { id: 'real-5y',  label: 'リアル5年' },
+              ] as const).map(({ id, label }) => (
                 <button
-                  key={mode}
-                  onClick={() => setDataSourceMode(mode)}
-                  className={`text-[10px] px-2.5 py-1 rounded-md transition-colors font-medium ${
-                    dataSourceMode === mode
-                      ? mode === 'real'
-                        ? 'bg-emerald-700 text-white'
-                        : 'bg-slate-600 text-slate-100'
+                  key={id}
+                  onClick={() => setDataSourceMode(id)}
+                  className={`text-[10px] px-2 py-1 rounded-md transition-colors font-medium whitespace-nowrap ${
+                    dataSourceMode === id
+                      ? id === 'mock'
+                        ? 'bg-slate-600 text-slate-100'
+                        : 'bg-emerald-700 text-white'
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  {mode === 'mock' ? 'モック（180日）' : 'リアル（5年）'}
+                  {label}
                 </button>
               ))}
             </div>
@@ -300,13 +326,13 @@ export default function Backtest({ data, stock }: Props) {
         </div>
 
         {/* リアルデータ状態表示 */}
-        {dataSourceMode === 'real' && (
+        {isRealMode && (
           <div className={`rounded-lg px-3 py-2 text-xs border ${
             realDataError
               ? 'bg-red-950/40 border-red-900/60 text-red-400'
               : realDataLoading
               ? 'bg-slate-900 border-slate-700 text-slate-400'
-              : realChartData.length > 0
+              : activeData.length > 0
               ? 'bg-emerald-950/30 border-emerald-900/50 text-emerald-400'
               : 'bg-slate-900 border-slate-700 text-slate-500'
           }`}>
@@ -314,8 +340,8 @@ export default function Backtest({ data, stock }: Props) {
               ? realDataError
               : realDataLoading
               ? '履歴データを読み込み中...'
-              : realChartData.length > 0
-              ? `リアルデータ読み込み完了 — ${realChartData[0]?.date} 〜 ${realChartData[realChartData.length - 1]?.date}（${realChartData.length}日）`
+              : activeData.length > 0
+              ? `リアルデータ — ${activeData[0]?.date} 〜 ${activeData[activeData.length - 1]?.date}（${activeData.length}日）`
               : 'データなし'}
           </div>
         )}
@@ -385,13 +411,13 @@ export default function Backtest({ data, stock }: Props) {
             {selectedRule.type === 'buy'
               ? `エントリー: ${selectedRule.name}　／　イグジット: 有効な売りルール or 期間終了`
               : `エントリー: 有効な買いルール　／　イグジット: ${selectedRule.name}`}
-            {multiMode && `　／　対象: 全${STOCKS.length}銘柄`}
+            {multiMode && `　／　対象: ${isRealMode ? `全${ALL_STOCKS.length - 1}銘柄（リアル）` : `全${STOCKS.length}銘柄（モック）`}`}
           </p>
         )}
 
         <button
           onClick={handleRun}
-          disabled={rules.length === 0 || activeData.length < 5 || multiLoading || realDataLoading}
+          disabled={rules.length === 0 || (!multiMode && activeData.length < 5) || multiLoading || (isRealMode && realDataLoading)}
           className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {multiLoading ? '全銘柄データ取得中...' : 'バックテスト実行'}

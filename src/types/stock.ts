@@ -38,6 +38,7 @@ export interface StockOption {
   label: string;
   color: string;
   basePrice: number;
+  sector?: string;
 }
 
 export interface NewsItem {

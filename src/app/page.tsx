@@ -188,11 +188,13 @@ export default function Home() {
                     <span className="text-xs text-slate-600 animate-pulse">読込中</span>
                   ) : (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
-                      dataSource === 'jquants'
+                      dataSource !== 'mock'
                         ? 'bg-emerald-950 text-emerald-400 border border-emerald-900'
                         : 'bg-slate-800 text-slate-500 border border-slate-700'
                     }`}>
-                      {dataSource === 'jquants' ? 'リアルデータ' : 'デモデータ'}
+                      {dataSource === 'jquants' ? 'リアルデータ(J-Quants)'
+                        : dataSource === 'historical' ? 'リアルデータ(5年)'
+                        : 'デモデータ'}
                     </span>
                   )}
                 </div>
