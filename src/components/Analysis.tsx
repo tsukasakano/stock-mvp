@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import type { ChartDataPoint, AnalysisResult, StockOption } from '@/types/stock';
+import type { ChartDataPoint, AnalysisResult, StockOption, NewsSentimentResult } from '@/types/stock';
 import { analyzeStock } from '@/lib/api';
 
 interface Props {
   stock: StockOption;
   data: ChartDataPoint[];
+  newsResult?: NewsSentimentResult;
 }
 
 function MetricBadge({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -48,7 +49,7 @@ function renderContent(content: string) {
   );
 }
 
-export default function Analysis({ stock, data }: Props) {
+export default function Analysis({ stock, data, newsResult }: Props) {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +60,7 @@ export default function Analysis({ stock, data }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await analyzeStock(stock, data);
+      const res = await analyzeStock(stock, data, newsResult);
       setResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : '分析に失敗しました');
@@ -112,6 +113,21 @@ export default function Analysis({ stock, data }: Props) {
           {[...Array(4)].map((_, i) => (
             <div key={i} className="skeleton h-16" />
           ))}
+        </div>
+      )}
+
+      {/* ニュース考慮バッジ */}
+      {newsResult && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+          newsResult.overallSentiment === 'positive'
+            ? 'bg-emerald-950/50 border-emerald-900 text-emerald-400'
+            : newsResult.overallSentiment === 'negative'
+            ? 'bg-red-950/50 border-red-900 text-red-400'
+            : 'bg-slate-800 border-slate-700 text-slate-400'
+        }`}>
+          <span className="font-semibold">ニュース考慮</span>
+          <span className="opacity-70">スコア {newsResult.overallScore}/100</span>
+          <span className="ml-auto opacity-60">AI分析に反映されます</span>
         </div>
       )}
 

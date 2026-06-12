@@ -1,4 +1,4 @@
-import type { ChartDataPoint, AnalysisResult, StockOption, StockData } from '@/types/stock';
+import type { ChartDataPoint, AnalysisResult, StockOption, StockData, NewsSentimentResult } from '@/types/stock';
 
 export type DataSource = 'jquants' | 'mock';
 
@@ -10,9 +10,26 @@ export async function fetchStockData(
   return res.json() as Promise<{ data: StockData[]; source: DataSource }>;
 }
 
+export async function fetchNewsSentiment(
+  stockCode: string,
+  stockName: string,
+): Promise<NewsSentimentResult> {
+  const res = await fetch('/api/news', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stockCode, stockName }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'ニュース生成に失敗しました' }));
+    throw new Error((err as { error?: string }).error ?? 'ニュース生成に失敗しました');
+  }
+  return res.json() as Promise<NewsSentimentResult>;
+}
+
 export async function analyzeStock(
   stock: StockOption,
-  data: ChartDataPoint[]
+  data: ChartDataPoint[],
+  newsResult?: NewsSentimentResult,
 ): Promise<AnalysisResult> {
   const recent = data.slice(-20);
   const latest = recent[recent.length - 1];
@@ -33,6 +50,13 @@ export async function analyzeStock(
       lowerBand: latest.lowerBand,
       middleBand: latest.middleBand,
       priceChange,
+      newsOverallSentiment: newsResult?.overallSentiment,
+      newsOverallScore: newsResult?.overallScore,
+      newsHeadlines: newsResult?.news
+        .filter(n => n.impact === 'high')
+        .slice(0, 3)
+        .map(n => `「${n.title}」(${n.sentiment})`)
+        .join('、'),
     }),
   });
 

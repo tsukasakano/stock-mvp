@@ -16,15 +16,26 @@ export async function POST(request: NextRequest) {
       lowerBand?: number;
       middleBand?: number;
       priceChange: string;
+      newsOverallSentiment?: string;
+      newsOverallScore?: number;
+      newsHeadlines?: string;
     };
 
     const {
       stockCode, stockName, latestClose, latestRSI,
       latestMACD, latestSignal, upperBand, lowerBand, priceChange,
+      newsOverallSentiment, newsOverallScore, newsHeadlines,
     } = body;
 
+    const sentimentLabel = newsOverallSentiment === 'positive' ? 'ポジティブ'
+      : newsOverallSentiment === 'negative' ? 'ネガティブ' : 'ニュートラル';
+
+    const newsSection = newsOverallScore !== undefined
+      ? `\nニュース感情分析スコア: ${newsOverallScore}/100（${sentimentLabel}）${newsHeadlines ? `\n主要ニュース: ${newsHeadlines}` : ''}`
+      : '';
+
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -37,14 +48,13 @@ RSI(14): ${latestRSI?.toFixed(1) ?? 'N/A'}
 MACD: ${latestMACD?.toFixed(2) ?? 'N/A'}
 MACDシグナル: ${latestSignal?.toFixed(2) ?? 'N/A'}
 ボリンジャーバンド上限: ¥${upperBand?.toFixed(0) ?? 'N/A'}
-ボリンジャーバンド下限: ¥${lowerBand?.toFixed(0) ?? 'N/A'}
+ボリンジャーバンド下限: ¥${lowerBand?.toFixed(0) ?? 'N/A'}${newsSection}
 
 以下の観点から簡潔に分析してください：
 1. トレンド（上昇・下降・横ばい）
 2. RSIによる過熱感・売られすぎの判断
 3. MACDのモメンタム
-4. ボリンジャーバンドの位置
-5. 総合的な短期見通し
+4. ボリンジャーバンドの位置${newsSection ? '\n5. ニュース感情の影響\n6. 総合的な短期見通し' : '\n5. 総合的な短期見通し'}
 
 ※この分析は投資助言ではありません。投資判断は自己責任でお願いします。`,
       }],

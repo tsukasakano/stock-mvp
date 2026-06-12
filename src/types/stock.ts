@@ -39,3 +39,20 @@ export interface StockOption {
   color: string;
   basePrice: number;
 }
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  summary: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  score: number;
+  source: string;
+  publishedAt: string;
+  impact: 'high' | 'medium' | 'low';
+}
+
+export interface NewsSentimentResult {
+  news: NewsItem[];
+  overallSentiment: 'positive' | 'neutral' | 'negative';
+  overallScore: number;
+}

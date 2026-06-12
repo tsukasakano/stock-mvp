@@ -8,17 +8,19 @@ import Analysis from '@/components/Analysis';
 import Journal from '@/components/Journal';
 import Simulator from '@/components/Simulator';
 import NisaManager from '@/components/NisaManager';
+import NewsSentiment from '@/components/NewsSentiment';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
-import type { ChartDataPoint, StockOption } from '@/types/stock';
+import type { ChartDataPoint, StockOption, NewsSentimentResult } from '@/types/stock';
 
-type Tab = 'chart' | 'journal' | 'simulator' | 'nisa';
+type Tab = 'chart' | 'journal' | 'simulator' | 'nisa' | 'news';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'chart',     label: 'チャート・分析',    short: 'チャート' },
   { id: 'journal',   label: 'トレード日誌',       short: '日誌' },
   { id: 'simulator', label: '損益シミュレーター', short: '損益' },
   { id: 'nisa',      label: 'NISA管理',           short: 'NISA' },
+  { id: 'news',      label: 'ニュース分析',        short: 'ニュース' },
 ];
 
 function ChartSkeleton() {
@@ -38,11 +40,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('chart');
+  const [newsResult, setNewsResult] = useState<NewsSentimentResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+
+    setNewsResult(null);
 
     fetchStockData(stock.value)
       .then(({ data, source }) => {
@@ -153,7 +158,7 @@ export default function Home() {
               {/* AI分析 */}
               <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
                 <h2 className="text-sm font-semibold text-slate-200 mb-4">AI分析</h2>
-                <Analysis stock={stock} data={chartData} />
+                <Analysis stock={stock} data={chartData} newsResult={newsResult ?? undefined} />
               </div>
             </div>
           )}
@@ -178,6 +183,16 @@ export default function Home() {
             <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
               <h2 className="text-sm font-semibold text-slate-200 mb-5">NISA管理</h2>
               <NisaManager />
+            </div>
+          )}
+
+          {activeTab === 'news' && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+              <div className="flex items-baseline gap-2 mb-5">
+                <h2 className="text-sm font-semibold text-slate-200">ニュース感情分析</h2>
+                <span className="text-xs text-slate-600">{stock.label}（{stock.value}）</span>
+              </div>
+              <NewsSentiment stock={stock} onResult={setNewsResult} />
             </div>
           )}
 
