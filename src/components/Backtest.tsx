@@ -134,6 +134,8 @@ export default function Backtest({ data, stock }: Props) {
   const [multiMode, setMultiMode] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResults, setMultiResults] = useState<StockBacktestResult[]>([]);
+  const [sortBy, setSortBy] = useState<'return' | 'sharpe' | 'winrate'>('return');
+  const [showPlusOnly, setShowPlusOnly] = useState(false);
   const [multiLoading, setMultiLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<OptimizeSuggestion | null>(null);
@@ -272,13 +274,32 @@ export default function Backtest({ data, stock }: Props) {
   const isPositive = (result?.totalReturn ?? 0) >= 0;
   const chartColor = isPositive ? '#10b981' : '#ef4444';
 
-  // Multi-stock aggregates
+  // Multi-stock aggregates (全体平均)
   const avgReturn = multiResults.length > 0
     ? multiResults.reduce((s, r) => s + r.result.totalReturnPct, 0) / multiResults.length : 0;
   const avgSharpe = multiResults.length > 0
     ? multiResults.reduce((s, r) => s + r.result.sharpeRatio, 0) / multiResults.length : 0;
   const avgWinRate = multiResults.length > 0
     ? multiResults.reduce((s, r) => s + r.result.winRate, 0) / multiResults.length : 0;
+
+  // Plus/minus breakdown
+  const plusResults  = multiResults.filter(sr => sr.result.totalReturnPct > 0);
+  const minusResults = multiResults.filter(sr => sr.result.totalReturnPct <= 0);
+  const top3 = [...multiResults].sort((a, b) => b.result.totalReturnPct - a.result.totalReturnPct).slice(0, 3);
+  const avgPlusReturn = plusResults.length > 0
+    ? plusResults.reduce((s, r) => s + r.result.totalReturnPct, 0) / plusResults.length : 0;
+  const avgPlusSharpe = plusResults.length > 0
+    ? plusResults.reduce((s, r) => s + r.result.sharpeRatio, 0) / plusResults.length : 0;
+
+  // Sorted + filtered card list
+  const displayResults = useMemo(() => {
+    let list = showPlusOnly ? multiResults.filter(sr => sr.result.totalReturnPct > 0) : multiResults;
+    switch (sortBy) {
+      case 'sharpe':  return [...list].sort((a, b) => b.result.sharpeRatio - a.result.sharpeRatio);
+      case 'winrate': return [...list].sort((a, b) => b.result.winRate - a.result.winRate);
+      default:        return [...list].sort((a, b) => b.result.totalReturnPct - a.result.totalReturnPct);
+    }
+  }, [multiResults, sortBy, showPlusOnly]);
 
   return (
     <div className="space-y-5">
@@ -427,7 +448,7 @@ export default function Backtest({ data, stock }: Props) {
       {/* ─── 全銘柄同時テスト結果 ───────────────────── */}
       {multiResults.length > 0 && (
         <>
-          {/* 集計サマリー */}
+          {/* 全体集計サマリー */}
           <div className="grid grid-cols-3 gap-2">
             <SummaryCard label="平均リターン"
               value={`${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%`}
@@ -440,10 +461,129 @@ export default function Backtest({ data, stock }: Props) {
               positive={avgWinRate >= 50} />
           </div>
 
-          {/* 銘柄別カード */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {multiResults.map(sr => <StockCard key={sr.stockCode} sr={sr} />)}
+          {/* 🏆 注目銘柄（上位3） */}
+          {top3.length > 0 && top3[0].result.totalReturnPct > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                🏆 注目銘柄（リターン上位3）
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {top3.map((sr, rank) => {
+                  const r = sr.result;
+                  const medals = ['🥇', '🥈', '🥉'];
+                  return (
+                    <div
+                      key={sr.stockCode}
+                      className="rounded-xl p-4 border-2 relative overflow-hidden"
+                      style={{ borderColor: sr.color, background: `${sr.color}10` }}
+                    >
+                      <span className="absolute top-2 right-2 text-xl">{medals[rank]}</span>
+                      <div className="flex items-center gap-2 mb-1 pr-7">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: sr.color }} />
+                        <p className="text-xs font-semibold text-slate-200 truncate">{sr.stockLabel}</p>
+                      </div>
+                      <p className="text-2xl font-mono font-bold text-emerald-400 leading-none mb-2">
+                        +{r.totalReturnPct}%
+                      </p>
+                      <div className="grid grid-cols-3 gap-1 text-[10px]">
+                        <span className="text-slate-500">勝率<br/><span className="text-slate-300 font-medium">{r.winRate}%</span></span>
+                        <span className="text-slate-500">シャープ<br/><span className="text-slate-300 font-medium">{r.sharpeRatio}</span></span>
+                        <span className="text-slate-500">取引<br/><span className="text-slate-300 font-medium">{r.totalTrades}回</span></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* プラス銘柄サマリーパネル */}
+          <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-800/60 space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-xs font-semibold text-slate-300">プラス銘柄ピックアップ</p>
+              <div className="flex gap-2 text-xs">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-400 border border-emerald-800/60 font-semibold">
+                  ＋ {plusResults.length}銘柄
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-red-900/40 text-red-400 border border-red-800/50 font-semibold">
+                  － {minusResults.length}銘柄
+                </span>
+              </div>
+              {plusResults.length > 0 && (
+                <div className="flex gap-3 text-[10px] text-slate-500 ml-auto">
+                  <span>平均リターン <span className="text-emerald-400 font-semibold">+{avgPlusReturn.toFixed(2)}%</span></span>
+                  <span>平均シャープ <span className="text-slate-300 font-semibold">{avgPlusSharpe.toFixed(2)}</span></span>
+                </div>
+              )}
+            </div>
+            {plusResults.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {[...plusResults]
+                  .sort((a, b) => b.result.totalReturnPct - a.result.totalReturnPct)
+                  .map(sr => (
+                    <span
+                      key={sr.stockCode}
+                      className="text-[10px] px-2 py-1 rounded-lg font-medium border"
+                      style={{
+                        color: sr.color,
+                        borderColor: `${sr.color}50`,
+                        background: `${sr.color}15`,
+                      }}
+                    >
+                      {sr.stockLabel}
+                      <span className="ml-1 font-mono font-bold">+{sr.result.totalReturnPct}%</span>
+                    </span>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">プラス銘柄なし（条件を緩和してみてください）</p>
+            )}
           </div>
+
+          {/* ソート・フィルターバー */}
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-slate-500 mr-1">並び順:</span>
+              {([
+                { id: 'return',  label: 'リターン順' },
+                { id: 'sharpe',  label: 'シャープ比順' },
+                { id: 'winrate', label: '勝率順' },
+              ] as const).map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setSortBy(id)}
+                  className={`text-[10px] px-2.5 py-1 rounded-lg transition-colors font-medium border ${
+                    sortBy === id
+                      ? 'bg-slate-600 border-slate-500 text-slate-100'
+                      : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <button
+                onClick={() => setShowPlusOnly(v => !v)}
+                className={`relative w-8 h-4 rounded-full transition-colors ${showPlusOnly ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                aria-label="プラスのみ表示"
+              >
+                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${showPlusOnly ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+              <span className="text-[10px] text-slate-400">プラスのみ表示</span>
+              <span className="text-[10px] text-slate-600">({displayResults.length}件)</span>
+            </label>
+          </div>
+
+          {/* 銘柄別カードグリッド */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {displayResults.map(sr => <StockCard key={sr.stockCode} sr={sr} />)}
+          </div>
+          {displayResults.length === 0 && (
+            <p className="text-center text-sm text-slate-500 py-6">
+              条件に一致する銘柄がありません
+            </p>
+          )}
         </>
       )}
 
