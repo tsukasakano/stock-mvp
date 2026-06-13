@@ -1,5 +1,6 @@
 import type { ChartDataPoint, TradeRule } from '@/types/stock';
 import { runBacktest, type BacktestResult } from '@/lib/backtest';
+import type { MarketTrend } from '@/lib/marketFilter';
 
 // ── Multi-stock types ──────────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ export type SharedWalkForwardParams = {
   testDays: number;
   commissionRate: number;
   slippage: number;
+  useMarketFilter?: boolean;
+  marketConditions?: Map<string, MarketTrend>;
 };
 
 export type StockWalkForwardResult = {
@@ -51,6 +54,8 @@ export type WalkForwardConfig = {
   maxHoldDays: number;
   commissionRate: number;
   slippage: number;
+  useMarketFilter?: boolean;
+  marketConditions?: Map<string, MarketTrend>;
 };
 
 export type WalkForwardWindow = {
@@ -88,8 +93,10 @@ export function runWalkForwardMultiple(
       takeProfit:   stock.takeProfit,
       trailingStop: stock.trailingStop,
       maxHoldDays:  stock.maxHoldDays,
-      commissionRate: shared.commissionRate,
-      slippage:       shared.slippage,
+      commissionRate:   shared.commissionRate,
+      slippage:         shared.slippage,
+      useMarketFilter:  shared.useMarketFilter,
+      marketConditions: shared.marketConditions,
     });
     return {
       symbol:           stock.symbol,
@@ -132,6 +139,7 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
     trainDays, testDays,
     takeProfit, trailingStop, maxHoldDays,
     commissionRate, slippage,
+    useMarketFilter, marketConditions,
   } = config;
 
   const empty: WalkForwardResult = {
@@ -155,6 +163,8 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
     maxHoldDays,
     commissionRate,
     slippage,
+    useMarketFilter,
+    marketConditions,
   };
 
   const windows: WalkForwardWindow[] = [];

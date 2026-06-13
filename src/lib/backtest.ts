@@ -1,4 +1,5 @@
 import type { ChartDataPoint, TradeRule, RuleCondition, RuleIndicator } from '@/types/stock';
+import type { MarketTrend } from '@/lib/marketFilter';
 
 export type BacktestConfig = {
   rule: TradeRule;
@@ -12,6 +13,8 @@ export type BacktestConfig = {
   sellRuleId?: string;      // 明示的に使用する売りルールID
   commissionRate?: number;  // 手数料率 (e.g. 0.001 = 0.1%)
   slippage?: number;        // スリッページ (e.g. 0.001 = 0.1%)
+  useMarketFilter?: boolean;
+  marketConditions?: Map<string, MarketTrend>;
 };
 
 export type ExitReason =
@@ -41,6 +44,7 @@ export type BacktestResult = {
   sharpeRatio: number;
   totalTrades: number;
   totalCost: number;
+  marketFilteredCount: number;
   equityCurve: { date: string; capital: number }[];
   exitReasons: {
     ruleExit: number;
@@ -197,6 +201,7 @@ export function runBacktest(
     sharpeRatio: 0,
     totalTrades: 0,
     totalCost: 0,
+    marketFilteredCount: 0,
     equityCurve: [],
     exitReasons: emptyExitReasons,
   };
@@ -233,6 +238,7 @@ export function runBacktest(
   let entryRangeIdx = -1;
   let positionHighPrice = 0; // highest close since entry (for trailing stop)
   let totalCostAccum = 0;
+  let marketFilteredCount = 0;
 
   const trades: BacktestTrade[] = [];
   const equityCurve: { date: string; capital: number }[] = [];
@@ -304,25 +310,34 @@ export function runBacktest(
 
     // Enter long position (not on last day)
     if (posShares === 0 && !isLast) {
-      const shouldEnter = entryRules.some(r => evalRuleAt(r, data, gi));
-      if (shouldEnter && cash > 0) {
-        const effectiveBuyPrice = price * (1 + rate);
-        const sharesToBuy = Math.floor((cash * positionSize) / effectiveBuyPrice);
-        if (sharesToBuy > 0) {
-          entryPrice = effectiveBuyPrice;
-          posShares = sharesToBuy;
-          entryRangeIdx = ri;
-          positionHighPrice = price;
-          totalCostAccum += sharesToBuy * price * rate;
-          cash -= sharesToBuy * effectiveBuyPrice;
-          trades.push({
-            date: d.date,
-            type: 'buy',
-            price,
-            shares: sharesToBuy,
-            capital: Math.round(cash + posShares * price),
-            pnl: 0,
-          });
+      // 相場環境フィルター：弱気相場では買いシグナルを無効化
+      const marketTrend = config.useMarketFilter && config.marketConditions
+        ? (config.marketConditions.get(d.date) ?? 'neutral')
+        : 'neutral';
+      const blockedByMarket = config.useMarketFilter && marketTrend === 'bear';
+      if (blockedByMarket) {
+        marketFilteredCount++;
+      } else {
+        const shouldEnter = entryRules.some(r => evalRuleAt(r, data, gi));
+        if (shouldEnter && cash > 0) {
+          const effectiveBuyPrice = price * (1 + rate);
+          const sharesToBuy = Math.floor((cash * positionSize) / effectiveBuyPrice);
+          if (sharesToBuy > 0) {
+            entryPrice = effectiveBuyPrice;
+            posShares = sharesToBuy;
+            entryRangeIdx = ri;
+            positionHighPrice = price;
+            totalCostAccum += sharesToBuy * price * rate;
+            cash -= sharesToBuy * effectiveBuyPrice;
+            trades.push({
+              date: d.date,
+              type: 'buy',
+              price,
+              shares: sharesToBuy,
+              capital: Math.round(cash + posShares * price),
+              pnl: 0,
+            });
+          }
         }
       }
     }
@@ -359,6 +374,7 @@ export function runBacktest(
     sharpeRatio: parseFloat(calcSharpe(dailyReturns).toFixed(2)),
     totalTrades: sellTrades.length,
     totalCost: Math.round(totalCostAccum),
+    marketFilteredCount,
     equityCurve,
     exitReasons: exitReasonCounts,
   };

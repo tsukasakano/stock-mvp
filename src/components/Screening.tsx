@@ -2,12 +2,58 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ALL_STOCKS } from '@/lib/stocks';
+import {
+  buildMarketConditionMap,
+  getLatestCondition,
+  type MarketCondition,
+} from '@/lib/marketFilter';
 import type { ScreeningCandidate, ScreeningResult } from '@/app/api/screening/route';
-import type { StockOption } from '@/types/stock';
+import type { StockOption, StockData } from '@/types/stock';
 
 interface Props {
   onAnalyze: (stock: StockOption) => void;
 }
+
+// ── Market condition banner ─────────────────────────────────────────────────
+
+const TREND_STYLE = {
+  bull:    { bg: 'bg-emerald-950/40 border-emerald-900/60', text: 'text-emerald-300', badge: 'bg-emerald-900/60 text-emerald-300', label: '強気' },
+  bear:    { bg: 'bg-red-950/30 border-red-900/50',         text: 'text-red-300',     badge: 'bg-red-900/50 text-red-300',         label: '弱気' },
+  neutral: { bg: 'bg-amber-950/20 border-amber-900/40',     text: 'text-amber-300',   badge: 'bg-amber-900/40 text-amber-300',     label: '中立' },
+};
+
+function MarketConditionBanner({ cond }: { cond: MarketCondition }) {
+  const st = TREND_STYLE[cond.trend];
+  return (
+    <div className={`rounded-xl px-4 py-3 border ${st.bg}`}>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${st.badge}`}>
+            {st.label}相場
+          </span>
+          <span className="text-[10px] text-slate-400">現在の市場環境（日経平均）</span>
+        </div>
+        <div className="flex items-center gap-4 text-[11px] font-mono">
+          <span className="text-slate-400">
+            日経平均 <span className={`font-bold ${st.text}`}>¥{cond.close.toLocaleString()}</span>
+          </span>
+          <span className="text-slate-500">MA25 <span className="text-slate-300">{cond.ma25.toLocaleString()}</span></span>
+          <span className="text-slate-500">MA75 <span className="text-slate-300">{cond.ma75.toLocaleString()}</span></span>
+          <span className={`${cond.rsi < 30 ? 'text-red-400' : cond.rsi > 70 ? 'text-amber-400' : 'text-slate-300'}`}>
+            RSI <span className="font-bold">{cond.rsi}</span>
+          </span>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-600 mt-1.5">
+        {cond.trend === 'bull' && '↑ 上昇トレンド中 — 買いシグナルを優先的に活用できる局面です'}
+        {cond.trend === 'bear' && '↓ 下降トレンド中 — 買いシグナルには慎重に対応することをお勧めします'}
+        {cond.trend === 'neutral' && '→ トレンドが定まらない局面 — 個別銘柄の状況を重視してください'}
+      </p>
+    </div>
+  );
+}
+
+// ── Stock card & helpers ────────────────────────────────────────────────────
 
 const SIGNAL_STYLE: Record<string, string> = {
   'RSI売られ過ぎ':  'bg-red-900/40 text-red-400 border-red-800/60',
@@ -114,6 +160,19 @@ export default function Screening({ onAnalyze }: Props) {
   const [result, setResult] = useState<ScreeningResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [marketCond, setMarketCond] = useState<MarketCondition | null>(null);
+
+  // 日経平均トレンド取得（ページロード時1回）
+  useEffect(() => {
+    fetch('/api/historical/N225')
+      .then(r => r.ok ? r.json() : null)
+      .then((raw: StockData[] | null) => {
+        if (!raw) return;
+        const condMap = buildMarketConditionMap(raw);
+        setMarketCond(getLatestCondition(condMap));
+      })
+      .catch(() => { /* N225データなしは無視 */ });
+  }, []);
 
   const fetchResult = useCallback(async () => {
     setLoading(true);
@@ -160,6 +219,9 @@ export default function Screening({ onAnalyze }: Props) {
           {loading ? '更新中...' : '↺ 再取得'}
         </button>
       </div>
+
+      {/* 市場環境バナー */}
+      {marketCond && <MarketConditionBanner cond={marketCond} />}
 
       {/* データ更新案内 */}
       <div className="bg-slate-800/40 rounded-xl px-4 py-2.5 border border-slate-700/60 text-[10px] text-slate-500">

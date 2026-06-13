@@ -15,6 +15,10 @@ import {
   runBacktest, runBacktestMultiple,
   type BacktestResult, type ExitReason, type StockBacktestResult,
 } from '@/lib/backtest';
+import {
+  buildMarketConditionMap,
+  type MarketTrend,
+} from '@/lib/marketFilter';
 import type { OptimizeSuggestion } from '@/app/api/optimize/route';
 
 interface Props {
@@ -134,6 +138,10 @@ export default function Backtest({ data, stock }: Props) {
   const [realDataError, setRealDataError] = useState<string | null>(null);
   const realDataFor = useRef<string | null>(null);
 
+  const [useMarketFilter, setUseMarketFilter] = useState(false);
+  const [marketConditions, setMarketConditions] = useState<Map<string, MarketTrend> | null>(null);
+  const [marketFilterLoading, setMarketFilterLoading] = useState(false);
+
   const [multiMode, setMultiMode] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResults, setMultiResults] = useState<StockBacktestResult[]>([]);
@@ -171,6 +179,24 @@ export default function Backtest({ data, stock }: Props) {
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [multiMode]);
   useEffect(() => { setResult(null); setMultiResults([]); setAiSuggestion(null); }, [dataSourceMode]);
 
+  // 相場環境フィルター：N225データを取得
+  useEffect(() => {
+    if (!useMarketFilter || marketConditions) return;
+    let cancelled = false;
+    setMarketFilterLoading(true);
+    fetch('/api/historical/N225')
+      .then(r => r.ok ? r.json() : null)
+      .then((raw: { date: string; open: number; high: number; low: number; close: number; volume: number }[] | null) => {
+        if (cancelled || !raw) return;
+        const condMap = buildMarketConditionMap(raw);
+        const trendMap = new Map<string, MarketTrend>();
+        condMap.forEach((c, k) => trendMap.set(k, c.trend));
+        setMarketConditions(trendMap);
+      })
+      .finally(() => { if (!cancelled) setMarketFilterLoading(false); });
+    return () => { cancelled = true; };
+  }, [useMarketFilter, marketConditions]);
+
   const isRealMode = dataSourceMode !== 'mock';
 
   const activeData = useMemo(() => {
@@ -193,8 +219,10 @@ export default function Backtest({ data, stock }: Props) {
       sellRuleId:     sellRuleId   !== '' ? sellRuleId                      : undefined,
       commissionRate: commissionRate !== '' ? parseFloat(commissionRate) / 100 : 0.001,
       slippage:       slippage       !== '' ? parseFloat(slippage)       / 100 : 0.001,
+      useMarketFilter: useMarketFilter && !!marketConditions,
+      marketConditions: marketConditions ?? undefined,
     };
-  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays, sellRuleId, commissionRate, slippage]);
+  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays, sellRuleId, commissionRate, slippage, useMarketFilter, marketConditions]);
 
   const handleRun = useCallback(async () => {
     const cfg = baseConfig();
@@ -476,6 +504,32 @@ export default function Backtest({ data, stock }: Props) {
           </div>
         </div>
 
+        {/* 相場環境フィルター */}
+        <div className={`rounded-xl px-4 py-3 border transition-colors ${useMarketFilter ? 'bg-blue-950/20 border-blue-900/50' : 'bg-slate-900/40 border-slate-800/60'}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-300">相場環境フィルター（日経平均）</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">弱気相場（MA25 &lt; MA75 かつ RSI &lt; 50）では買いシグナルを無効化します</p>
+              {useMarketFilter && marketFilterLoading && (
+                <p className="text-[10px] text-blue-400 mt-0.5 animate-pulse">日経平均データを取得中...</p>
+              )}
+              {useMarketFilter && !marketFilterLoading && marketConditions && (
+                <p className="text-[10px] text-emerald-400 mt-0.5">✓ 日経平均データ読み込み完了</p>
+              )}
+              {useMarketFilter && !marketFilterLoading && !marketConditions && (
+                <p className="text-[10px] text-amber-400 mt-0.5">⚠ N225データなし — python scripts/fetch_nikkei.py を実行してください</p>
+              )}
+            </div>
+            <button
+              onClick={() => { setUseMarketFilter(v => !v); setResult(null); setMultiResults([]); }}
+              className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${useMarketFilter ? 'bg-blue-600' : 'bg-slate-700'}`}
+              aria-label="相場環境フィルター切り替え"
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${useMarketFilter ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+
         {/* 売りルール選択 */}
         <div>
           <label className="text-xs text-slate-500 flex items-center mb-1">
@@ -696,6 +750,9 @@ export default function Backtest({ data, stock }: Props) {
             <SummaryCard label="シャープ比" value={`${result.sharpeRatio}`} positive={result.sharpeRatio > 0} />
             <SummaryCard label="取引回数" value={`${result.totalTrades}回`} positive={result.totalTrades > 0} />
             <SummaryCard label="総取引コスト" value={`-¥${result.totalCost.toLocaleString()}`} positive={false} />
+            {result.marketFilteredCount > 0 && (
+              <SummaryCard label="MF除外" value={`${result.marketFilteredCount}回`} positive={true} />
+            )}
           </div>
 
           {/* 決済理由の内訳 */}
