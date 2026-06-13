@@ -14,10 +14,13 @@ import { DEFAULT_STRATEGIES } from '@/lib/portfolioStrategy';
 import {
   runWalkForward,
   runWalkForwardMultiple,
+  runWalkForwardAggregated,
   type WalkForwardResult,
   type WalkForwardWindow,
   type MultiWalkForwardResult,
   type StockWalkForwardResult,
+  type AggregatedWalkForwardResult,
+  type AggregatedWindow,
 } from '@/lib/walkForward';
 import { buildMarketConditionMap, type MarketTrend } from '@/lib/marketFilter';
 import type { TradeRule, ChartDataPoint, StockData } from '@/types/stock';
@@ -167,7 +170,7 @@ function VerdictSection({ result }: { result: WalkForwardResult }) {
   );
 }
 
-// ── Window chart + table (shared between single and multi detail) ──────────
+// ── Window chart + table (single/portfolio) ───────────────────────────────
 
 function WindowsDetail({ windows }: { windows: WalkForwardWindow[] }) {
   const lineData = windows.map(w => ({
@@ -259,6 +262,179 @@ function WindowsDetail({ windows }: { windows: WalkForwardWindow[] }) {
   );
 }
 
+// ── Aggregated windows table ───────────────────────────────────────────────
+
+function AggregatedWindowsDetail({ windows }: { windows: AggregatedWindow[] }) {
+  const lineData = windows.map(w => ({
+    window: `W${w.windowIndex}`,
+    train: w.avgTrainReturn,
+    test:  w.avgTestReturn,
+  }));
+
+  return (
+    <div className="space-y-3 pt-1">
+      {lineData.length > 0 && (
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={lineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="window" tick={{ fontSize: 9, fill: '#64748b' }} />
+            <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={v => `${v}%`} width={38} />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(v: unknown, name: unknown) => {
+                const num = Number(v);
+                return [`${num >= 0 ? '+' : ''}${num.toFixed(2)}%`, name === 'train' ? '平均学習R' : '平均検証R'];
+              }}
+            />
+            <Legend formatter={v => v === 'train' ? '平均学習R' : '平均検証R'} wrapperStyle={{ fontSize: '10px' }} />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2" />
+            <Line type="monotone" dataKey="train" stroke="#3b82f6" strokeWidth={1.5}
+              dot={{ r: 3, fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 1 }} />
+            <Line type="monotone" dataKey="test" stroke="#10b981" strokeWidth={1.5}
+              strokeDasharray="5 3" dot={{ r: 3, fill: '#10b981', stroke: '#0f172a', strokeWidth: 1 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="border-b border-slate-800 text-slate-500">
+              <th className="px-2 py-1.5 text-left">#</th>
+              <th className="px-2 py-1.5 text-left">検証期間</th>
+              <th className="px-2 py-1.5 text-right">平均学習R</th>
+              <th className="px-2 py-1.5 text-right">平均検証R</th>
+              <th className="px-2 py-1.5 text-right font-semibold text-slate-400">合計取引</th>
+              <th className="px-2 py-1.5 text-right">勝率</th>
+              <th className="px-2 py-1.5 text-right">Sharpe</th>
+            </tr>
+          </thead>
+          <tbody>
+            {windows.map(w => {
+              const testPos = w.avgTestReturn >= 0;
+              return (
+                <tr key={w.windowIndex} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                  <td className="px-2 py-1.5 font-mono text-slate-500">W{w.windowIndex}</td>
+                  <td className="px-2 py-1.5 font-mono text-slate-500 text-[10px] whitespace-nowrap">
+                    {w.testStart} 〜 {fmtDate(w.testEnd)}
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.avgTrainReturn >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                    {w.avgTrainReturn >= 0 ? '+' : ''}{w.avgTrainReturn}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono font-semibold ${testPos ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {testPos ? '+' : ''}{w.avgTestReturn}%
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-amber-300 font-semibold">
+                    {w.totalTestTrades}回
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.testWinRate >= 50 ? 'text-slate-300' : 'text-amber-400'}`}>
+                    {w.testWinRate}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.testSharpe > 0 ? 'text-slate-300' : 'text-red-400'}`}>
+                    {w.testSharpe}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Aggregated result section ─────────────────────────────────────────────
+
+function AggregatedResultSection({ result }: { result: AggregatedWalkForwardResult }) {
+  const { consistency, isReliable, avgTestReturn, avgTestSharpe, avgTestWinRate, avgWindowTrades, windows, stockCount } = result;
+
+  const isGood = isReliable && avgTestReturn > 0 && avgTestSharpe >= 0.5;
+  const suggestions: string[] = [];
+  if (!isReliable) {
+    suggestions.push('学習期間を延ばす（例: 504日）か、よりシンプルなルールを試す');
+    suggestions.push('ウィンドウ数が少ない場合はデータ期間を延ばす');
+  }
+  if (avgTestWinRate < 50) suggestions.push('勝率が低い — TP/TSP設定を調整してエントリー精度を改善する');
+  if (avgTestSharpe < 0.5) suggestions.push('シャープ比が低い — トレーリングストップを強めてリスクを管理する');
+  if (avgTestReturn < 0) suggestions.push('平均リターンがマイナス — 買いルールの閾値を見直す');
+
+  return (
+    <div className="space-y-4">
+      {/* 大型一貫性ゲージ */}
+      <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 flex justify-center">
+        <div className="w-full max-w-sm">
+          <ConsistencyGauge value={consistency} isReliable={isReliable} />
+        </div>
+      </div>
+
+      {/* サマリーカード */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className="rounded-xl p-3 border bg-slate-900 border-slate-800">
+          <p className="text-[10px] text-slate-500 mb-1">ウィンドウ数</p>
+          <p className="text-sm font-bold font-mono text-slate-200">{windows.length}個</p>
+        </div>
+        <div className={`rounded-xl p-3 border ${avgTestReturn >= 0 ? 'bg-emerald-950/40 border-emerald-900/60' : 'bg-red-950/40 border-red-900/60'}`}>
+          <p className="text-[10px] text-slate-500 mb-1">平均検証R</p>
+          <p className={`text-sm font-bold font-mono ${avgTestReturn >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {avgTestReturn >= 0 ? '+' : ''}{avgTestReturn}%
+          </p>
+        </div>
+        <div className="rounded-xl p-3 border bg-slate-900 border-slate-800">
+          <p className="text-[10px] text-slate-500 mb-1">平均Sharpe</p>
+          <p className={`text-sm font-bold font-mono ${avgTestSharpe > 0 ? 'text-slate-200' : 'text-red-400'}`}>
+            {avgTestSharpe.toFixed(2)}
+          </p>
+        </div>
+        <div className="rounded-xl p-3 border bg-slate-900 border-slate-800">
+          <p className="text-[10px] text-slate-500 mb-1">平均勝率</p>
+          <p className={`text-sm font-bold font-mono ${avgTestWinRate >= 50 ? 'text-slate-200' : 'text-red-400'}`}>
+            {avgTestWinRate}%
+          </p>
+        </div>
+        <div className="rounded-xl p-3 border bg-amber-950/30 border-amber-900/50">
+          <p className="text-[10px] text-slate-500 mb-1">平均取引/窓</p>
+          <p className="text-sm font-bold font-mono text-amber-300">{avgWindowTrades}回</p>
+          <p className="text-[9px] text-slate-600">{stockCount}銘柄合算</p>
+        </div>
+      </div>
+
+      {/* ウィンドウ詳細 */}
+      <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
+        <p className="text-xs font-semibold text-slate-400 mb-2">ウィンドウ別集計リターン（全{stockCount}銘柄の平均）</p>
+        <AggregatedWindowsDetail windows={windows} />
+      </div>
+
+      {/* 総合判定 */}
+      <div className={`rounded-xl p-4 border ${isGood ? 'bg-emerald-950/30 border-emerald-900/60' : 'bg-amber-950/20 border-amber-900/40'}`}>
+        <div className="flex items-start gap-3">
+          <span className="text-2xl mt-0.5">{isGood ? '✅' : '⚠️'}</span>
+          <div className="space-y-2 flex-1">
+            <p className={`text-sm font-bold ${isGood ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {isGood ? `このルールは全${stockCount}銘柄で実用的です` : `全${stockCount}銘柄での検証 — 改善の余地があります`}
+            </p>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              一貫性スコア {consistency.toFixed(3)} / 平均検証リターン {avgTestReturn >= 0 ? '+' : ''}{avgTestReturn}% /
+              平均シャープ比 {avgTestSharpe.toFixed(2)} / 勝率 {avgTestWinRate}% /
+              ウィンドウあたり平均取引回数 <span className="text-amber-300 font-semibold">{avgWindowTrades}回</span>
+            </p>
+            {suggestions.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">改善提案</p>
+                <ul className="space-y-1">
+                  {suggestions.map((s, i) => (
+                    <li key={i} className="text-xs text-slate-400 flex gap-1.5">
+                      <span className="text-amber-500 flex-shrink-0">•</span>{s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Multi-stock result card ────────────────────────────────────────────────
 
 function StockResultCard({
@@ -279,7 +455,6 @@ function StockResultCard({
         onClick={onToggle}
         className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-800/30 transition-colors rounded-xl"
       >
-        {/* 一貫性スコア */}
         <div
           className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 border"
           style={{ background: `${color}15`, borderColor: `${color}40` }}
@@ -289,8 +464,6 @@ function StockResultCard({
           </span>
           <span className="text-[8px] text-slate-500 mt-0.5">一貫性</span>
         </div>
-
-        {/* 銘柄名・バッジ */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-slate-200">{result.name}</span>
@@ -310,8 +483,6 @@ function StockResultCard({
             <span className="text-slate-600">{result.windows.length}窓</span>
           </div>
         </div>
-
-        {/* 展開矢印 */}
         <span className={`text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
       </button>
 
@@ -396,8 +567,10 @@ function MultiVerdictSection({ result }: { result: MultiWalkForwardResult }) {
 export default function WalkForward() {
   const [rules] = useState<TradeRule[]>(() => loadRules());
   const [multiMode, setMultiMode] = useState(false);
+  // Sub-toggle inside multi-mode: portfolio (8) vs all-stocks (49)
+  const [allStocksMode, setAllStocksMode] = useState(false);
 
-  // Single-mode state
+  // Single-mode + all-stocks-mode shared state
   const [selectedStockValue, setSelectedStockValue] = useState(ALL_STOCKS[0]?.value ?? '');
   const [buyRuleId, setBuyRuleId]   = useState(() => rules.find(r => r.type === 'buy')?.id ?? '');
   const [sellRuleId, setSellRuleId] = useState('');
@@ -413,17 +586,20 @@ export default function WalkForward() {
   const [commissionRate, setCommissionRate] = useState('0.1');
   const [slippage, setSlippage]             = useState('0.1');
 
-  // Multi-mode state
+  // Multi-mode portfolio state
   const [multiResult, setMultiResult]       = useState<MultiWalkForwardResult | null>(null);
-  const [multiProgress, setMultiProgress]   = useState<{ done: number; total: number } | null>(null);
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
+
+  // All-stocks aggregated state
+  const [aggregatedResult, setAggregatedResult] = useState<AggregatedWalkForwardResult | null>(null);
+
+  const [multiProgress, setMultiProgress]   = useState<{ done: number; total: number } | null>(null);
 
   // 相場環境フィルター
   const [useMarketFilter, setUseMarketFilter]       = useState(false);
   const [marketConditions, setMarketConditions]     = useState<Map<string, MarketTrend> | null>(null);
   const [marketFilterLoading, setMarketFilterLoading] = useState(false);
 
-  // Common state
   const [loading, setLoading]     = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -449,7 +625,6 @@ export default function WalkForward() {
 
   const buyRules  = rules.filter(r => r.type === 'buy');
   const sellRules = rules.filter(r => r.type === 'sell');
-  const selectedStock = ALL_STOCKS.find(s => s.value === selectedStockValue) ?? ALL_STOCKS[0];
 
   const getOrFetchData = useCallback(async (symbol: string): Promise<ChartDataPoint[] | null> => {
     const cacheKey = `${symbol}-${useHistorical}`;
@@ -513,6 +688,7 @@ export default function WalkForward() {
       takeProfit, trailingStop, maxHoldDays, commissionRate, slippage,
       useMarketFilter, marketConditions, getOrFetchData]);
 
+  // Portfolio mode (8 stocks)
   const handleRunMulti = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -565,15 +741,73 @@ export default function WalkForward() {
       setLoading(false);
       setMultiProgress(null);
     }
-  }, [rules, trainDays, testDays, commissionRate, slippage, getOrFetchData]);
+  }, [rules, trainDays, testDays, commissionRate, slippage, useMarketFilter, marketConditions, getOrFetchData]);
+
+  // All-stocks aggregated mode (49 stocks)
+  const handleRunAllStocks = useCallback(async () => {
+    const buyRule = rules.find(r => r.id === buyRuleId);
+    if (!buyRule) return;
+
+    setLoading(true);
+    setLoadError(null);
+    setAggregatedResult(null);
+    setMultiProgress({ done: 0, total: ALL_STOCKS.length });
+
+    const shared = {
+      trainDays:      parseInt(trainDays)      || 252,
+      testDays:       parseInt(testDays)       || 63,
+      commissionRate: parseFloat(commissionRate) / 100 || 0.001,
+      slippage:       parseFloat(slippage)       / 100 || 0.001,
+      useMarketFilter: useMarketFilter && !!marketConditions,
+      marketConditions: marketConditions ?? undefined,
+    };
+
+    const tp   = parseFloat(takeProfit)   / 100 || 0.1;
+    const tsp  = parseFloat(trailingStop) / 100 || 0.03;
+    const mhd  = parseInt(maxHoldDays)    || 20;
+    const sid  = sellRuleId || undefined;
+
+    try {
+      const inputs: Parameters<typeof runWalkForwardAggregated>[0] = [];
+      let done = 0;
+
+      for (const stock of ALL_STOCKS) {
+        const chartData = await getOrFetchData(stock.value);
+        done++;
+        setMultiProgress({ done, total: ALL_STOCKS.length });
+        if (!chartData) continue;
+
+        inputs.push({
+          symbol:      stock.value,
+          name:        stock.label,
+          data:        chartData,
+          rule:        buyRule,
+          sellRuleId:  sid,
+          takeProfit:  tp,
+          trailingStop: tsp,
+          maxHoldDays: mhd,
+        });
+      }
+
+      const result = runWalkForwardAggregated(inputs, shared, rules);
+      setAggregatedResult(result);
+    } catch (e) {
+      console.error('[walk-forward all-stocks]', e);
+      setLoadError('検証中にエラーが発生しました');
+    } finally {
+      setLoading(false);
+      setMultiProgress(null);
+    }
+  }, [rules, buyRuleId, sellRuleId, trainDays, testDays, takeProfit, trailingStop, maxHoldDays,
+      commissionRate, slippage, useMarketFilter, marketConditions, getOrFetchData]);
 
   const resetResults = () => {
     setWfResult(null);
     setMultiResult(null);
+    setAggregatedResult(null);
     setLoadError(null);
   };
 
-  // Shared params panel (used by both modes)
   const sharedParams = (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div className="grid grid-cols-2 gap-2">
@@ -607,6 +841,11 @@ export default function WalkForward() {
     </div>
   );
 
+  const onRun = multiMode
+    ? (allStocksMode ? handleRunAllStocks : handleRunMulti)
+    : handleRunSingle;
+  const runDisabled = loading || (!multiMode && !buyRuleId) || (multiMode && allStocksMode && !buyRuleId);
+
   return (
     <div className="space-y-5">
 
@@ -615,7 +854,6 @@ export default function WalkForward() {
 
         {/* ヘッダー行：モード切替 + データソーストグル */}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          {/* モード切替 */}
           <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
             <button
               onClick={() => { setMultiMode(false); resetResults(); }}
@@ -635,7 +873,6 @@ export default function WalkForward() {
             </button>
           </div>
 
-          {/* データソーストグル */}
           <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
             <button
               onClick={() => { setUseHistorical(false); dataCache.current.clear(); resetResults(); }}
@@ -710,21 +947,89 @@ export default function WalkForward() {
         {/* ── 複数銘柄モード ── */}
         {multiMode && (
           <>
-            <div className="space-y-2">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">対象銘柄（ポートフォリオ戦略の8銘柄）</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {DEFAULT_STRATEGIES.map(s => {
-                  const buyRule = rules.find(r => r.id === s.buyRuleId);
-                  return (
-                    <div key={s.symbol} className="bg-slate-900 rounded-lg px-2.5 py-2 border border-slate-800">
-                      <p className="text-xs font-medium text-slate-300">{s.name}</p>
-                      <p className="text-[10px] text-slate-600 truncate">{buyRule?.name ?? s.buyRuleId}</p>
-                      <p className="text-[10px] text-slate-600">TP:{s.takeProfit}% TS:{s.trailingStop}%</p>
-                    </div>
-                  );
-                })}
-              </div>
+            {/* 対象銘柄サブトグル */}
+            <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700 w-fit">
+              <button
+                onClick={() => { setAllStocksMode(false); resetResults(); }}
+                className={`text-[10px] px-3 py-1 rounded-md transition-colors font-medium ${
+                  !allStocksMode ? 'bg-slate-600 text-slate-100' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                ポートフォリオ（8銘柄）
+              </button>
+              <button
+                onClick={() => { setAllStocksMode(true); resetResults(); }}
+                className={`text-[10px] px-3 py-1 rounded-md transition-colors font-medium ${
+                  allStocksMode ? 'bg-amber-700 text-white' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                全銘柄（{ALL_STOCKS.length}銘柄）
+              </button>
             </div>
+
+            {/* ポートフォリオ（8銘柄）モード */}
+            {!allStocksMode && (
+              <div className="space-y-2">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">対象銘柄（ポートフォリオ戦略の8銘柄）</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {DEFAULT_STRATEGIES.map(s => {
+                    const buyRule = rules.find(r => r.id === s.buyRuleId);
+                    return (
+                      <div key={s.symbol} className="bg-slate-900 rounded-lg px-2.5 py-2 border border-slate-800">
+                        <p className="text-xs font-medium text-slate-300">{s.name}</p>
+                        <p className="text-[10px] text-slate-600 truncate">{buyRule?.name ?? s.buyRuleId}</p>
+                        <p className="text-[10px] text-slate-600">TP:{s.takeProfit}% TS:{s.trailingStop}%</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 全銘柄（49銘柄）モード */}
+            {allStocksMode && (
+              <div className="space-y-3">
+                <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl px-4 py-3">
+                  <p className="text-xs font-semibold text-amber-300">全{ALL_STOCKS.length}銘柄 一括ウォークフォワード検証</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    各ウィンドウで全銘柄の取引を合算 — 取引回数が増え統計的信頼性が向上します
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">買いルール（全銘柄共通）</label>
+                    <select value={buyRuleId} onChange={e => { setBuyRuleId(e.target.value); resetResults(); }} className={inputCls}>
+                      {buyRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">売りルール（オプション）</label>
+                    <select value={sellRuleId} onChange={e => { setSellRuleId(e.target.value); resetResults(); }} className={inputCls}>
+                      <option value="">自動（有効な売りルールをすべて使用）</option>
+                      {sellRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">TP（%）</label>
+                      <input type="number" value={takeProfit} min={0.5} step={0.5}
+                        onChange={e => { setTakeProfit(e.target.value); resetResults(); }} className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">TSP（%）</label>
+                      <input type="number" value={trailingStop} min={0.5} step={0.5}
+                        onChange={e => { setTrailingStop(e.target.value); resetResults(); }} className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">最大保有日</label>
+                      <input type="number" value={maxHoldDays} min={1} step={1}
+                        onChange={e => { setMaxHoldDays(e.target.value); resetResults(); }} className={inputCls} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {sharedParams}
           </>
         )}
@@ -761,11 +1066,15 @@ export default function WalkForward() {
           </p>
         )}
 
-        {/* プログレス */}
+        {/* プログレスバー */}
         {loading && multiProgress && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>データ取得・検証中...</span>
+              <span>
+                {allStocksMode && multiMode
+                  ? `全${ALL_STOCKS.length}銘柄データ取得・検証中...`
+                  : 'データ取得・検証中...'}
+              </span>
               <span className="font-mono">{multiProgress.done}/{multiProgress.total}</span>
             </div>
             <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -778,8 +1087,8 @@ export default function WalkForward() {
         )}
 
         <button
-          onClick={multiMode ? handleRunMulti : handleRunSingle}
-          disabled={loading || (!multiMode && !buyRuleId)}
+          onClick={onRun}
+          disabled={runDisabled}
           className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {loading ? (
@@ -787,6 +1096,8 @@ export default function WalkForward() {
               <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
               検証実行中...
             </>
+          ) : multiMode && allStocksMode ? (
+            `全${ALL_STOCKS.length}銘柄ウォークフォワード検証実行`
           ) : multiMode ? (
             '複数銘柄ウォークフォワード検証実行'
           ) : (
@@ -803,14 +1114,11 @@ export default function WalkForward() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 大型一貫性ゲージ */}
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 flex justify-center">
               <div className="w-full max-w-sm">
                 <ConsistencyGauge value={wfResult.consistency} isReliable={wfResult.isReliable} />
               </div>
             </div>
-
-            {/* サマリーカード */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div className="rounded-xl p-3 border bg-slate-900 border-slate-800">
                 <p className="text-[10px] text-slate-500 mb-1">検証ウィンドウ数</p>
@@ -835,8 +1143,6 @@ export default function WalkForward() {
                 </p>
               </div>
             </div>
-
-            {/* 乖離ハイライトチャート + テーブル */}
             <div className="bg-slate-900 rounded-xl p-4 border border-slate-800 space-y-1">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-slate-400">ウィンドウ別リターン（学習 vs 検証）</p>
@@ -879,8 +1185,6 @@ export default function WalkForward() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-
-            {/* テーブル */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
               <div className="px-4 py-2.5 border-b border-slate-800">
                 <p className="text-xs font-semibold text-slate-400">ウィンドウ別詳細</p>
@@ -889,17 +1193,14 @@ export default function WalkForward() {
                 <WindowsDetail windows={wfResult.windows} />
               </div>
             </div>
-
             <VerdictSection result={wfResult} />
           </div>
         )
       )}
 
-      {/* ─── 複数銘柄 結果 ──────────────────────────────── */}
-      {multiMode && multiResult && (
+      {/* ─── ポートフォリオ（8銘柄）結果 ───────────────────── */}
+      {multiMode && !allStocksMode && multiResult && (
         <div className="space-y-4">
-
-          {/* 全体サマリー */}
           <div className="grid grid-cols-3 gap-2">
             <div className={`rounded-xl p-4 border flex flex-col items-center justify-center gap-1 ${
               multiResult.reliableCount >= 3 ? 'bg-emerald-950/30 border-emerald-900/60'
@@ -936,7 +1237,6 @@ export default function WalkForward() {
             </div>
           </div>
 
-          {/* 銘柄別カード */}
           <div className="space-y-2">
             <p className="text-xs font-semibold text-slate-400">銘柄別結果</p>
             {multiResult.stockResults
@@ -952,9 +1252,19 @@ export default function WalkForward() {
               ))}
           </div>
 
-          {/* 総合判定 */}
           <MultiVerdictSection result={multiResult} />
         </div>
+      )}
+
+      {/* ─── 全銘柄集計結果 ─────────────────────────────── */}
+      {multiMode && allStocksMode && aggregatedResult && (
+        aggregatedResult.windows.length === 0 ? (
+          <div className="bg-slate-900/60 rounded-xl p-6 border border-slate-800/60 text-center">
+            <p className="text-sm text-slate-400">ウィンドウを生成できませんでした。学習期間・検証期間を短くするか、リアルデータに切り替えてください。</p>
+          </div>
+        ) : (
+          <AggregatedResultSection result={aggregatedResult} />
+        )
       )}
 
       <p className="text-[10px] text-slate-700 text-center">
