@@ -6,16 +6,17 @@ export type WalkForwardConfig = {
   rule: TradeRule;
   allRules: TradeRule[];
   sellRuleId?: string;
-  trainPeriod: number;   // 学習期間（日数） default 252
-  testPeriod: number;    // 検証期間（日数） default 63
-  takeProfit: number;    // decimal e.g. 0.1
-  trailingStop: number;  // decimal e.g. 0.03
+  trainDays: number;    // 学習期間（日数）
+  testDays: number;     // 検証期間（日数）
+  takeProfit: number;
+  trailingStop: number;
   maxHoldDays: number;
-  commissionRate: number;  // decimal e.g. 0.001
-  slippage: number;        // decimal e.g. 0.001
+  commissionRate: number;
+  slippage: number;
 };
 
 export type WalkForwardWindow = {
+  windowIndex: number;
   trainStart: string;
   trainEnd: string;
   testStart: string;
@@ -29,7 +30,8 @@ export type WalkForwardResult = {
   avgTestReturn: number;
   avgTestSharpe: number;
   avgTestWinRate: number;
-  consistency: number;  // Pearson correlation between train/test returns (-1〜1)
+  consistency: number;
+  isReliable: boolean;  // consistency >= 0.7
 };
 
 function pearsonCorr(x: number[], y: number[]): number {
@@ -46,7 +48,7 @@ function pearsonCorr(x: number[], y: number[]): number {
 export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
   const {
     data, rule, allRules, sellRuleId,
-    trainPeriod, testPeriod,
+    trainDays, testDays,
     takeProfit, trailingStop, maxHoldDays,
     commissionRate, slippage,
   } = config;
@@ -57,9 +59,10 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
     avgTestSharpe: 0,
     avgTestWinRate: 0,
     consistency: 0,
+    isReliable: false,
   };
 
-  if (data.length < trainPeriod + testPeriod) return empty;
+  if (data.length < trainDays + testDays) return empty;
 
   const baseConfig = {
     rule,
@@ -76,9 +79,9 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
   const windows: WalkForwardWindow[] = [];
   let windowStart = 0;
 
-  while (windowStart + trainPeriod + testPeriod <= data.length) {
-    const trainSlice = data.slice(windowStart, windowStart + trainPeriod);
-    const testSlice  = data.slice(windowStart + trainPeriod, windowStart + trainPeriod + testPeriod);
+  while (windowStart + trainDays + testDays <= data.length) {
+    const trainSlice = data.slice(windowStart, windowStart + trainDays);
+    const testSlice  = data.slice(windowStart + trainDays, windowStart + trainDays + testDays);
 
     const trainResult = runBacktest(
       { ...baseConfig, startDate: trainSlice[0].date, endDate: trainSlice[trainSlice.length - 1].date },
@@ -92,6 +95,7 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
     );
 
     windows.push({
+      windowIndex: windows.length + 1,
       trainStart: trainSlice[0].date,
       trainEnd:   trainSlice[trainSlice.length - 1].date,
       testStart:  testSlice[0].date,
@@ -100,7 +104,7 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
       testResult,
     });
 
-    windowStart += testPeriod;
+    windowStart += testDays;
   }
 
   if (windows.length === 0) return empty;
@@ -113,12 +117,14 @@ export function runWalkForward(config: WalkForwardConfig): WalkForwardResult {
   const trainReturns = windows.map(w => w.trainResult.totalReturnPct);
   const testReturns  = windows.map(w => w.testResult.totalReturnPct);
   const consistency  = pearsonCorr(trainReturns, testReturns);
+  const clampedConsistency = parseFloat(Math.max(-1, Math.min(1, consistency)).toFixed(3));
 
   return {
     windows,
     avgTestReturn:  parseFloat(avgTestReturn.toFixed(2)),
     avgTestSharpe:  parseFloat(avgTestSharpe.toFixed(2)),
     avgTestWinRate: parseFloat(avgTestWinRate.toFixed(1)),
-    consistency:    parseFloat(Math.max(-1, Math.min(1, consistency)).toFixed(3)),
+    consistency:    clampedConsistency,
+    isReliable:     clampedConsistency >= 0.7,
   };
 }

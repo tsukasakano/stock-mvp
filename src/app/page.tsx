@@ -54,10 +54,11 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('chart');
   const [newsResult, setNewsResult] = useState<NewsSentimentResult | null>(null);
-  const [alerts, setAlerts] = useState<AlertEntry[]>(() => {
-    if (typeof window !== 'undefined') return loadAlerts();
-    return [];
-  });
+  const [alerts, setAlerts] = useState<AlertEntry[]>([]);
+
+  useEffect(() => {
+    setAlerts(loadAlerts());
+  }, []);
 
   useEffect(() => {
     saveAlerts(alerts);
