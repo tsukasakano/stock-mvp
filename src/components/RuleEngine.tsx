@@ -41,6 +41,13 @@ const INDICATOR_LABELS: Record<RuleIndicator, string> = {
   rsiDivergence:  'RSIダイバージェンス',
   priceVsMA20:    '価格/MA20比率',
   volumeRatio:    '出来高比率',
+  ma75:           'MA75',
+  ma200:          'MA200',
+  atr:            'ATR(14)',
+  atrPct:         'ATR%(14)',
+  stochK:         'ストキャス%K',
+  stochD:         'ストキャス%D',
+  ichimokuCloud:  '一目・雲位置',
 };
 
 const INDICATOR_HINTS: Partial<Record<RuleIndicator, string>> = {
@@ -51,6 +58,13 @@ const INDICATOR_HINTS: Partial<Record<RuleIndicator, string>> = {
   rsiDivergence:  '価格下落中にRSIが上昇する反転シグナル（1=発生・0=未発生）',
   priceVsMA20:    '1.0以下で移動平均線を下回っている状態',
   volumeRatio:    '20日平均出来高との比率。1.5以上で出来高急増',
+  ma75:           '75日移動平均線。中期トレンドの節目',
+  ma200:          '200日移動平均線。長期トレンドの基準線',
+  atr:            'Wilder ATR(14)。ボラティリティの絶対値',
+  atrPct:         'ATRを株価で割った%値。3%以上で高ボラティリティ',
+  stochK:         'スローストキャスティクス%K（20以下で売られ過ぎ・80以上で買われ過ぎ）',
+  stochD:         'スローストキャスティクス%D（%Kのシグナル線）',
+  ichimokuCloud:  '雲の位置: 1=雲の上(強気) / 0=雲の中 / -1=雲の下(弱気)',
 };
 
 const OPERATOR_LABELS: Record<RuleOperator, string> = {

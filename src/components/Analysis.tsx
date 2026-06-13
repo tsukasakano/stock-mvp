@@ -83,6 +83,31 @@ export default function Analysis({ stock, data, newsResult }: Props) {
     return { value: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`, color: pct > 80 ? 'text-red-400' : pct < -80 ? 'text-blue-400' : 'text-slate-200' };
   })();
 
+  const stochColor = (() => {
+    const k = latest?.stochSlowK;
+    if (k === undefined) return 'text-slate-200';
+    return k < 20 ? 'text-blue-400' : k > 80 ? 'text-red-400' : 'text-emerald-400';
+  })();
+
+  const ichimokuLabel = (() => {
+    const s1 = latest?.ichimokuSpan1, s2 = latest?.ichimokuSpan2;
+    if (s1 === undefined || s2 === undefined || latest === undefined) return null;
+    const top = Math.max(s1, s2), bot = Math.min(s1, s2);
+    if (latest.close > top) return { value: '雲の上', color: 'text-emerald-400' };
+    if (latest.close < bot) return { value: '雲の下', color: 'text-red-400' };
+    return { value: '雲の中', color: 'text-amber-400' };
+  })();
+
+  const ma75Color = (() => {
+    if (!latest?.ma75) return 'text-slate-200';
+    return latest.close > latest.ma75 ? 'text-emerald-400' : 'text-red-400';
+  })();
+
+  const ma200Color = (() => {
+    if (!latest?.ma200) return 'text-slate-200';
+    return latest.close > latest.ma200 ? 'text-emerald-400' : 'text-red-400';
+  })();
+
   return (
     <div className="flex flex-col gap-4">
       {/* 現在の指標 */}
@@ -106,6 +131,46 @@ export default function Analysis({ stock, data, newsResult }: Props) {
             label="BB位置"
             value={bbPos?.value ?? 'N/A'}
             color={bbPos?.color}
+          />
+          <MetricBadge
+            label="ATR%"
+            value={latest.atrPct !== undefined ? `${latest.atrPct.toFixed(2)}%` : 'N/A'}
+            color={latest.atrPct !== undefined && latest.atrPct > 3 ? 'text-amber-400' : 'text-slate-200'}
+          />
+          <MetricBadge
+            label="Stoch %K/%D"
+            value={latest.stochSlowK !== undefined && latest.stochSlowD !== undefined
+              ? `${latest.stochSlowK.toFixed(0)}/${latest.stochSlowD.toFixed(0)}`
+              : 'N/A'}
+            color={stochColor}
+          />
+          <MetricBadge
+            label="vs MA75"
+            value={latest.ma75 !== undefined
+              ? `${((latest.close / latest.ma75 - 1) * 100).toFixed(1)}%`
+              : 'N/A'}
+            color={ma75Color}
+          />
+          <MetricBadge
+            label="vs MA200"
+            value={latest.ma200 !== undefined
+              ? `${((latest.close / latest.ma200 - 1) * 100).toFixed(1)}%`
+              : 'N/A'}
+            color={ma200Color}
+          />
+          <MetricBadge
+            label="一目・雲"
+            value={ichimokuLabel?.value ?? 'N/A'}
+            color={ichimokuLabel?.color}
+          />
+          <MetricBadge
+            label="転換/基準"
+            value={latest.ichimokuTenkan !== undefined && latest.ichimokuKijun !== undefined
+              ? latest.ichimokuTenkan > latest.ichimokuKijun ? '強気' : '弱気'
+              : 'N/A'}
+            color={latest.ichimokuTenkan !== undefined && latest.ichimokuKijun !== undefined
+              ? latest.ichimokuTenkan > latest.ichimokuKijun ? 'text-emerald-400' : 'text-red-400'
+              : undefined}
           />
         </dl>
       ) : (

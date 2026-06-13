@@ -15,6 +15,20 @@ export interface ChartDataPoint extends StockData {
   upperBand?: number;
   middleBand?: number;
   lowerBand?: number;
+  // Extended indicators (v0.9.18)
+  ma75?: number;
+  ma200?: number;
+  atr?: number;
+  atrPct?: number;
+  stochK?: number;
+  stochD?: number;
+  stochSlowK?: number;
+  stochSlowD?: number;
+  ichimokuTenkan?: number;
+  ichimokuKijun?: number;
+  ichimokuSpan1?: number;
+  ichimokuSpan2?: number;
+  ichimokuLagging?: number;
 }
 
 export interface TradeJournalEntry {
@@ -61,7 +75,8 @@ export interface NewsSentimentResult {
 export type RuleIndicator =
   | 'rsi' | 'macd' | 'signal' | 'price' | 'ma5' | 'ma25' | 'volume'
   | 'bbUpper' | 'bbLower' | 'bbMid' | 'bbWidth' | 'volumeMA'
-  | 'rsiDivergence' | 'priceVsMA20' | 'volumeRatio';
+  | 'rsiDivergence' | 'priceVsMA20' | 'volumeRatio'
+  | 'ma75' | 'ma200' | 'atr' | 'atrPct' | 'stochK' | 'stochD' | 'ichimokuCloud';
 export type RuleOperator = '>' | '<' | '>=' | '<=' | 'crossover' | 'crossunder';
 
 export interface RuleCondition {

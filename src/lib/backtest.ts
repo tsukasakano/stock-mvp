@@ -91,6 +91,21 @@ function indicatorValue(
       return u !== undefined && l !== undefined ? u - l : undefined;
     }
     case 'volumeMA': return volumeSMA(data, 20, idx);
+    case 'ma75':    return sma(data, 75, idx);
+    case 'ma200':   return sma(data, 200, idx);
+    case 'atr':     return d.atr;
+    case 'atrPct':  return d.atrPct;
+    case 'stochK':  return d.stochSlowK;
+    case 'stochD':  return d.stochSlowD;
+    case 'ichimokuCloud': {
+      const s1 = d.ichimokuSpan1, s2 = d.ichimokuSpan2;
+      if (s1 === undefined || s2 === undefined) return undefined;
+      const cloudTop = Math.max(s1, s2);
+      const cloudBot = Math.min(s1, s2);
+      if (d.close > cloudTop) return 1;
+      if (d.close < cloudBot) return -1;
+      return 0;
+    }
     case 'rsiDivergence': {
       if (idx < 4) return undefined;
       const rsiCur  = data[idx].rsi;

@@ -151,6 +151,55 @@ export const DEFAULT_RULES: TradeRule[] = [
     logic: 'AND',
     enabled: true,
   },
+  {
+    id: 'preset-ichimoku-breakout',
+    name: '一目均衡表雲上抜けブレイク',
+    type: 'buy',
+    conditions: [
+      { indicator: 'ichimokuCloud', operator: '>', value: 0 },
+      { indicator: 'price', operator: '>', value: 0, compareIndicator: 'ma25' },
+      { indicator: 'rsi', operator: '>=', value: 50 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
+  {
+    id: 'preset-stoch-reversal',
+    name: 'ストキャスティクス底打ち反転',
+    type: 'buy',
+    conditions: [
+      { indicator: 'stochK', operator: '<', value: 20 },
+      { indicator: 'stochD', operator: '<', value: 20 },
+      { indicator: 'rsi',    operator: '<', value: 40 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
+  {
+    id: 'preset-atr-filter',
+    name: 'ATRボラティリティ付きトレンド',
+    type: 'buy',
+    conditions: [
+      { indicator: 'price',   operator: '>', value: 0, compareIndicator: 'ma75' },
+      { indicator: 'rsi',     operator: '>=', value: 45 },
+      { indicator: 'atrPct',  operator: '<', value: 3.0 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
+  {
+    id: 'preset-long-trend-follow',
+    name: '長期トレンドフォロー（MA200）',
+    type: 'buy',
+    conditions: [
+      { indicator: 'price', operator: '>', value: 0, compareIndicator: 'ma200' },
+      { indicator: 'ma75',  operator: '>', value: 0, compareIndicator: 'ma200' },
+      { indicator: 'rsi',   operator: '>=', value: 40 },
+      { indicator: 'rsi',   operator: '<=', value: 65 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
 ];
 
 // ─── ストレージ ───────────────────────────────────────────
@@ -222,6 +271,21 @@ function indicatorValue(
       return u !== undefined && l !== undefined ? u - l : undefined;
     }
     case 'volumeMA': return volumeSMA(data, 20, idx);
+    case 'ma75':    return sma(data, 75, idx);
+    case 'ma200':   return sma(data, 200, idx);
+    case 'atr':     return d.atr;
+    case 'atrPct':  return d.atrPct;
+    case 'stochK':  return d.stochSlowK;
+    case 'stochD':  return d.stochSlowD;
+    case 'ichimokuCloud': {
+      const s1 = d.ichimokuSpan1, s2 = d.ichimokuSpan2;
+      if (s1 === undefined || s2 === undefined) return undefined;
+      const cloudTop = Math.max(s1, s2);
+      const cloudBot = Math.min(s1, s2);
+      if (d.close > cloudTop) return 1;
+      if (d.close < cloudBot) return -1;
+      return 0;
+    }
     case 'rsiDivergence': {
       if (idx < 4) return undefined;
       const rsiCur  = data[idx].rsi;
