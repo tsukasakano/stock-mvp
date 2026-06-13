@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Fetch 5-year daily OHLCV data for Nikkei 225 stocks via yfinance."""
+"""Fetch 5-year daily OHLCV data for Nikkei 225 stocks via yfinance.
+
+負荷軽減ポリシー:
+- 1銘柄ずつ順番に取得
+- リクエスト間に2〜3秒のランダム待機
+- 当日取得済みのファイルはスキップ
+- エラー時は3回までリトライ（5秒待機）
+- 30秒タイムアウト
+"""
 
 import json
 import os
 import sys
+import time
+import random
+from datetime import datetime, date
 
 try:
     import yfinance as yf
@@ -26,41 +37,94 @@ SYMBOLS = [
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "public", "data", "historical")
 os.makedirs(OUT_DIR, exist_ok=True)
 
+TODAY = date.today().isoformat()
+MAX_RETRIES = 3
+RETRY_WAIT = 5      # seconds between retries
+MIN_WAIT = 2.0      # min seconds between successful requests
+MAX_WAIT = 3.0      # max seconds between successful requests
+
 total = len(SYMBOLS)
 ok_count = 0
 skip_count = 0
+cached_count = 0
+
+
+def is_today_cached(out_path: str) -> bool:
+    """Return True if the file exists and its last record is from today."""
+    if not os.path.exists(out_path):
+        return False
+    try:
+        with open(out_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+        if not records:
+            return False
+        last_date = records[-1].get("date", "")
+        return last_date >= TODAY
+    except Exception:
+        return False
+
+
+def fetch_with_retry(symbol: str) -> list | None:
+    """Fetch history for a symbol with up to MAX_RETRIES attempts."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="5y", timeout=30)
+            if hist.empty:
+                return None
+
+            records = []
+            for dt, row in hist.iterrows():
+                records.append({
+                    "date":   dt.strftime("%Y-%m-%d"),
+                    "open":   int(round(float(row["Open"]))),
+                    "high":   int(round(float(row["High"]))),
+                    "low":    int(round(float(row["Low"]))),
+                    "close":  int(round(float(row["Close"]))),
+                    "volume": int(row["Volume"]),
+                })
+            return records
+
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                print(f"  リトライ {attempt}/{MAX_RETRIES} ({e}) → {RETRY_WAIT}秒待機...", flush=True)
+                time.sleep(RETRY_WAIT)
+            else:
+                raise
+
 
 for i, symbol in enumerate(SYMBOLS):
     pct = (i + 1) / total * 100
-    print(f"[{pct:5.1f}%] {symbol} ...", end=" ", flush=True)
+    out_path = os.path.join(OUT_DIR, f"{symbol}.json")
+
+    # 当日取得済みならスキップ
+    if is_today_cached(out_path):
+        print(f"[{pct:5.1f}%] {symbol} CACHED (本日取得済み)")
+        cached_count += 1
+        continue
+
+    print(f"[{pct:5.1f}%] {symbol} 取得中...", end=" ", flush=True)
+
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="5y")
-        if hist.empty:
-            print("SKIP (no data)")
+        records = fetch_with_retry(symbol)
+
+        if records is None:
+            print("SKIP (データなし)")
             skip_count += 1
-            continue
+        else:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(records, f)
+            print(f"OK ({len(records)}日分)")
+            ok_count += 1
 
-        records = []
-        for dt, row in hist.iterrows():
-            records.append({
-                "date":   dt.strftime("%Y-%m-%d"),
-                "open":   int(round(row["Open"])),
-                "high":   int(round(row["High"])),
-                "low":    int(round(row["Low"])),
-                "close":  int(round(row["Close"])),
-                "volume": int(row["Volume"]),
-            })
-
-        out_path = os.path.join(OUT_DIR, f"{symbol}.json")
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(records, f)
-
-        print(f"OK ({len(records)} days)")
-        ok_count += 1
+            # 次のリクエストまでランダム待機（当日取得済みスキップ時は待機しない）
+            wait = random.uniform(MIN_WAIT, MAX_WAIT)
+            time.sleep(wait)
 
     except Exception as e:
         print(f"ERROR: {e}")
         skip_count += 1
+        # エラー後も少し待機
+        time.sleep(RETRY_WAIT)
 
-print(f"\nDone. success={ok_count}, skipped={skip_count}")
+print(f"\n完了: 新規取得={ok_count}, キャッシュ済={cached_count}, スキップ={skip_count}")

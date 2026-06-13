@@ -1,6 +1,6 @@
 import type { ChartDataPoint, AnalysisResult, StockOption, StockData, NewsSentimentResult } from '@/types/stock';
 
-export type DataSource = 'jquants' | 'mock' | 'historical';
+export type DataSource = 'jquants' | 'mock' | 'yfinance';
 
 export async function fetchStockData(
   code: string,

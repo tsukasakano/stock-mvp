@@ -132,7 +132,7 @@ export default function Home() {
         </div>
       </header>
 
-      <DataStatus />
+      <DataStatus dataSource={dataSource} stockLabel={stock.label} />
 
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 sm:space-y-4">
 
@@ -199,8 +199,8 @@ export default function Home() {
                         ? 'bg-emerald-950 text-emerald-400 border border-emerald-900'
                         : 'bg-slate-800 text-slate-500 border border-slate-700'
                     }`}>
-                      {dataSource === 'jquants' ? 'リアルデータ(J-Quants)'
-                        : dataSource === 'historical' ? 'リアルデータ(5年)'
+                      {dataSource === 'jquants'  ? 'リアルデータ(J-Quants)'
+                        : dataSource === 'yfinance' ? 'リアルデータ(yfinance)'
                         : 'デモデータ'}
                     </span>
                   )}

@@ -22,10 +22,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'unknown stock code' }, { status: 400 });
   }
 
+  // 1) yfinanceキャッシュを最優先（ローカルJSONが存在すれば常に使用）
+  const histPath = path.join(
+    process.cwd(), 'public', 'data', 'historical', `${code}.T.json`,
+  );
+  if (existsSync(histPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(histPath, 'utf-8')) as {
+        date: string; open: number; high: number; low: number; close: number; volume: number;
+      }[];
+      if (raw.length > 0) {
+        // チャート表示用に直近180取引日分を返す
+        const recent = raw.slice(-180);
+        return NextResponse.json({ data: recent, source: 'yfinance' });
+      }
+    } catch (e) {
+      console.error('[stocks] yfinance cache read error:', e);
+    }
+  }
+
+  // 2) J-Quantsにフォールバック（yfinanceキャッシュがない場合のみ）
   const from = new Date();
   from.setMonth(from.getMonth() - 6);
-
-  // 1) Try J-Quants (freshest data)
   try {
     const data = await fetchDailyQuotes(code, dateStr(from));
     if (data.length > 0) {
@@ -36,24 +54,7 @@ export async function GET(request: NextRequest) {
     console.error('[stocks] J-Quants error:', error instanceof Error ? error.message : error);
   }
 
-  // 2) Try local historical data (yfinance 5y cache)
-  const histPath = path.join(
-    process.cwd(), 'public', 'data', 'historical', `${code}.T.json`,
-  );
-  if (existsSync(histPath)) {
-    try {
-      const raw = JSON.parse(readFileSync(histPath, 'utf-8')) as {
-        date: string; open: number; high: number; low: number; close: number; volume: number;
-      }[];
-      // Return last 180 trading days for chart display
-      const recent = raw.slice(-180);
-      return NextResponse.json({ data: recent, source: 'historical' });
-    } catch (e) {
-      console.error('[stocks] historical read error:', e);
-    }
-  }
-
-  // 3) Mock data fallback
+  // 3) モックデータで最終フォールバック
   const data = generateMockData(stock);
   return NextResponse.json({ data, source: 'mock' });
 }
