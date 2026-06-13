@@ -25,12 +25,14 @@ export type PortfolioBacktestResponse = {
 type RequestBody = {
   strategies: StockStrategy[];
   useHistorical: boolean;
+  commissionRate?: number;
+  slippage?: number;
 };
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as RequestBody;
-    const { strategies, useHistorical } = body;
+    const { strategies, useHistorical, commissionRate, slippage } = body;
 
     const results: PortfolioBacktestResponse['results'] = [];
 
@@ -78,6 +80,8 @@ export async function POST(request: NextRequest) {
             trailingStop: strategy.trailingStop / 100,
             maxHoldDays: strategy.maxHoldDays,
             sellRuleId: strategy.sellRuleId,
+            commissionRate: commissionRate ?? 0.001,
+            slippage: slippage ?? 0.001,
             startDate,
             endDate,
           },

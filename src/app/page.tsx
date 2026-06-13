@@ -14,23 +14,26 @@ import AlertPanel from '@/components/AlertPanel';
 import Backtest from '@/components/Backtest';
 import Screening from '@/components/Screening';
 import PortfolioStrategy from '@/components/PortfolioStrategy';
+import DataStatus from '@/components/DataStatus';
+import WalkForward from '@/components/WalkForward';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
 import { loadAlerts, saveAlerts } from '@/lib/ruleEngine';
 import type { ChartDataPoint, StockOption, NewsSentimentResult, AlertEntry } from '@/types/stock';
 
-type Tab = 'screening' | 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest' | 'portfolio';
+type Tab = 'screening' | 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest' | 'portfolio' | 'walkforward';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
-  { id: 'screening', label: '🔍 スクリーニング',  short: '🔍' },
-  { id: 'chart',     label: 'チャート・分析',    short: 'チャート' },
-  { id: 'journal',   label: 'トレード日誌',       short: '日誌' },
-  { id: 'simulator', label: '損益シミュレーター', short: '損益' },
-  { id: 'nisa',      label: 'NISA管理',           short: 'NISA' },
-  { id: 'news',      label: 'ニュース分析',        short: 'ニュース' },
-  { id: 'rules',     label: '売買ルール',          short: 'ルール' },
-  { id: 'backtest',  label: 'バックテスト',        short: 'BT' },
-  { id: 'portfolio', label: 'ポートフォリオ',      short: 'PF' },
+  { id: 'screening',   label: '🔍 スクリーニング',    short: '🔍' },
+  { id: 'chart',       label: 'チャート・分析',        short: 'チャート' },
+  { id: 'journal',     label: 'トレード日誌',           short: '日誌' },
+  { id: 'simulator',   label: '損益シミュレーター',     short: '損益' },
+  { id: 'nisa',        label: 'NISA管理',               short: 'NISA' },
+  { id: 'news',        label: 'ニュース分析',            short: 'ニュース' },
+  { id: 'rules',       label: '売買ルール',              short: 'ルール' },
+  { id: 'backtest',    label: 'バックテスト',            short: 'BT' },
+  { id: 'portfolio',   label: 'ポートフォリオ',          short: 'PF' },
+  { id: 'walkforward', label: 'ウォークフォワード',      short: 'WF' },
 ];
 
 function ChartSkeleton() {
@@ -128,6 +131,8 @@ export default function Home() {
           ) : null}
         </div>
       </header>
+
+      <DataStatus />
 
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 sm:space-y-4">
 
@@ -286,6 +291,16 @@ export default function Home() {
                 <span className="text-xs text-slate-600">銘柄ごと最適ルール</span>
               </div>
               <PortfolioStrategy />
+            </div>
+          )}
+
+          {activeTab === 'walkforward' && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+              <div className="flex items-baseline gap-2 mb-5">
+                <h2 className="text-sm font-semibold text-slate-200">ウォークフォワード検証</h2>
+                <span className="text-xs text-slate-600">過学習チェック・戦略頑健性検証</span>
+              </div>
+              <WalkForward />
             </div>
           )}
 

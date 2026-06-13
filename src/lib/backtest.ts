@@ -6,10 +6,12 @@ export type BacktestConfig = {
   endDate: string;
   initialCapital: number;
   positionSize: number;
-  takeProfit?: number;    // 利益確定ライン (e.g. 0.05 = +5%)
-  trailingStop?: number;  // トレイリングストップ (e.g. 0.03 = 高値から-3%)
-  maxHoldDays?: number;   // 最大保有日数
-  sellRuleId?: string;    // 明示的に使用する売りルールID
+  takeProfit?: number;      // 利益確定ライン (e.g. 0.05 = +5%)
+  trailingStop?: number;    // トレイリングストップ (e.g. 0.03 = 高値から-3%)
+  maxHoldDays?: number;     // 最大保有日数
+  sellRuleId?: string;      // 明示的に使用する売りルールID
+  commissionRate?: number;  // 手数料率 (e.g. 0.001 = 0.1%)
+  slippage?: number;        // スリッページ (e.g. 0.001 = 0.1%)
 };
 
 export type ExitReason =
@@ -38,6 +40,7 @@ export type BacktestResult = {
   maxDrawdown: number;
   sharpeRatio: number;
   totalTrades: number;
+  totalCost: number;
   equityCurve: { date: string; capital: number }[];
   exitReasons: {
     ruleExit: number;
@@ -193,11 +196,13 @@ export function runBacktest(
     maxDrawdown: 0,
     sharpeRatio: 0,
     totalTrades: 0,
+    totalCost: 0,
     equityCurve: [],
     exitReasons: emptyExitReasons,
   };
 
   const { rule, initialCapital, positionSize } = config;
+  const rate = (config.commissionRate ?? 0) + (config.slippage ?? 0);
 
   // Filter to requested date range
   const rangeData = data.filter(
@@ -227,6 +232,7 @@ export function runBacktest(
   let entryPrice = 0;
   let entryRangeIdx = -1;
   let positionHighPrice = 0; // highest close since entry (for trailing stop)
+  let totalCostAccum = 0;
 
   const trades: BacktestTrade[] = [];
   const equityCurve: { date: string; capital: number }[] = [];
@@ -242,7 +248,7 @@ export function runBacktest(
     const price = d.close;
     const isLast = ri === rangeData.length - 1;
 
-    // Update trailing stop high-water mark before exit checks
+    // Update trailing stop high-water mark (use actual market price)
     if (posShares > 0 && price > positionHighPrice) positionHighPrice = price;
 
     // Exit open long position
@@ -274,8 +280,10 @@ export function runBacktest(
       }
 
       if (exitReason) {
-        const revenue = posShares * price;
+        const effectiveSellPrice = price * (1 - rate);
+        const revenue = posShares * effectiveSellPrice;
         const pnl = revenue - entryPrice * posShares;
+        totalCostAccum += posShares * price * rate;
         cash += revenue;
         if (exitReason !== 'periodEnd') exitReasonCounts[exitReason]++;
         trades.push({
@@ -298,13 +306,15 @@ export function runBacktest(
     if (posShares === 0 && !isLast) {
       const shouldEnter = entryRules.some(r => evalRuleAt(r, data, gi));
       if (shouldEnter && cash > 0) {
-        const sharesToBuy = Math.floor((cash * positionSize) / price);
+        const effectiveBuyPrice = price * (1 + rate);
+        const sharesToBuy = Math.floor((cash * positionSize) / effectiveBuyPrice);
         if (sharesToBuy > 0) {
-          entryPrice = price;
+          entryPrice = effectiveBuyPrice;
           posShares = sharesToBuy;
           entryRangeIdx = ri;
           positionHighPrice = price;
-          cash -= sharesToBuy * price;
+          totalCostAccum += sharesToBuy * price * rate;
+          cash -= sharesToBuy * effectiveBuyPrice;
           trades.push({
             date: d.date,
             type: 'buy',
@@ -317,7 +327,7 @@ export function runBacktest(
       }
     }
 
-    // End-of-day equity (mark-to-market)
+    // End-of-day equity (mark-to-market at actual price)
     const equity = cash + posShares * price;
 
     if (equity > peakEquity) peakEquity = equity;
@@ -348,6 +358,7 @@ export function runBacktest(
     maxDrawdown: parseFloat((maxDrawdown * 100).toFixed(2)),
     sharpeRatio: parseFloat(calcSharpe(dailyReturns).toFixed(2)),
     totalTrades: sellTrades.length,
+    totalCost: Math.round(totalCostAccum),
     equityCurve,
     exitReasons: exitReasonCounts,
   };

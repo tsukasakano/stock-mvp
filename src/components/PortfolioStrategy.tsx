@@ -48,6 +48,8 @@ export default function PortfolioStrategy() {
     DEFAULT_STRATEGIES.map(s => ({ ...s })),
   );
   const [useHistorical, setUseHistorical] = useState(false);
+  const [commissionRate, setCommissionRate] = useState('0.1');
+  const [slippage, setSlippage] = useState('0.1');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<PortfolioBacktestResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -73,7 +75,12 @@ export default function PortfolioStrategy() {
       const res = await fetch('/api/portfolio-backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategies, useHistorical }),
+        body: JSON.stringify({
+          strategies,
+          useHistorical,
+          commissionRate: parseFloat(commissionRate) / 100 || 0.001,
+          slippage: parseFloat(slippage) / 100 || 0.001,
+        }),
       });
       if (!res.ok) throw new Error('バックテストに失敗しました');
       setResponse(await res.json() as PortfolioBacktestResponse);
@@ -82,7 +89,7 @@ export default function PortfolioStrategy() {
     } finally {
       setLoading(false);
     }
-  }, [strategies, useHistorical]);
+  }, [strategies, useHistorical, commissionRate, slippage]);
 
   const handleAiOptimize = useCallback(async () => {
     if (!response) return;
@@ -279,6 +286,34 @@ export default function PortfolioStrategy() {
         </div>
       </div>
 
+      {/* ─── 取引コスト設定 ──────────────────────────────── */}
+      <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800/60">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">取引コスト設定（全銘柄共通）</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="text-[11px] text-slate-500 block mb-1">手数料率（%）</label>
+            <input type="number" value={commissionRate} min={0} step={0.05} placeholder="0.1"
+              onChange={e => { setCommissionRate(e.target.value); setResponse(null); }}
+              className={selectCls} />
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-500 block mb-1">スリッページ（%）</label>
+            <input type="number" value={slippage} min={0} step={0.05} placeholder="0.1"
+              onChange={e => { setSlippage(e.target.value); setResponse(null); }}
+              className={selectCls} />
+          </div>
+          <div className="sm:col-span-2 flex items-end">
+            <p className="text-[10px] text-slate-600">
+              片道コスト合計: <span className="text-slate-400 font-mono">
+                {((parseFloat(commissionRate || '0') + parseFloat(slippage || '0'))).toFixed(2)}%
+              </span>　往復: <span className="text-slate-400 font-mono">
+                {((parseFloat(commissionRate || '0') + parseFloat(slippage || '0')) * 2).toFixed(2)}%
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* ─── 実行ボタン ─────────────────────────────────── */}
       <button
         onClick={handleRun}
@@ -364,11 +399,12 @@ export default function PortfolioStrategy() {
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-500">
                     <th className="px-4 py-2.5 text-left font-medium">銘柄</th>
-                    <th className="px-4 py-2.5 text-right font-medium">リターン</th>
+                    <th className="px-4 py-2.5 text-right font-medium">純リターン</th>
+                    <th className="px-4 py-2.5 text-right font-medium">粗リターン</th>
                     <th className="px-4 py-2.5 text-right font-medium">勝率</th>
                     <th className="px-4 py-2.5 text-right font-medium">シャープ</th>
                     <th className="px-4 py-2.5 text-right font-medium">最大DD</th>
-                    <th className="px-4 py-2.5 text-right font-medium">取引回数</th>
+                    <th className="px-4 py-2.5 text-right font-medium">取引コスト</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -385,12 +421,20 @@ export default function PortfolioStrategy() {
                           <td className={`px-4 py-2.5 text-right font-mono font-bold ${pos ? 'text-emerald-400' : 'text-red-400'}`}>
                             {pos ? '+' : ''}{r.totalReturnPct}%
                           </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-slate-500 text-[10px]">
+                            {(() => {
+                              const grossPct = ((r.finalCapital + r.totalCost - 1_000_000) / 1_000_000 * 100).toFixed(2);
+                              return `${parseFloat(grossPct) >= 0 ? '+' : ''}${grossPct}%`;
+                            })()}
+                          </td>
                           <td className="px-4 py-2.5 text-right font-mono text-slate-300">{r.winRate}%</td>
                           <td className={`px-4 py-2.5 text-right font-mono ${r.sharpeRatio > 0 ? 'text-slate-300' : 'text-red-400'}`}>
                             {r.sharpeRatio}
                           </td>
                           <td className="px-4 py-2.5 text-right font-mono text-slate-400">-{r.maxDrawdown}%</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-slate-400">{r.totalTrades}回</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-slate-600 text-[10px]">
+                            -¥{r.totalCost.toLocaleString()}
+                          </td>
                         </tr>
                       );
                     })}

@@ -124,6 +124,8 @@ export default function Backtest({ data, stock }: Props) {
   const [takeProfit, setTakeProfit] = useState('5');
   const [trailingStop, setTrailingStop] = useState('3');
   const [maxHoldDays, setMaxHoldDays] = useState('20');
+  const [commissionRate, setCommissionRate] = useState('0.1');
+  const [slippage, setSlippage] = useState('0.1');
 
   type DataPeriod = 'mock' | RealPeriod;
   const [dataSourceMode, setDataSourceMode] = useState<DataPeriod>('mock');
@@ -188,9 +190,11 @@ export default function Backtest({ data, stock }: Props) {
       takeProfit:   takeProfit   !== '' ? parseFloat(takeProfit)   / 100 : undefined,
       trailingStop: trailingStop !== '' ? parseFloat(trailingStop) / 100 : undefined,
       maxHoldDays:  maxHoldDays  !== '' ? parseInt(maxHoldDays)          : undefined,
-      sellRuleId:   sellRuleId   !== '' ? sellRuleId                      : undefined,
+      sellRuleId:     sellRuleId   !== '' ? sellRuleId                      : undefined,
+      commissionRate: commissionRate !== '' ? parseFloat(commissionRate) / 100 : 0.001,
+      slippage:       slippage       !== '' ? parseFloat(slippage)       / 100 : 0.001,
     };
-  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays, sellRuleId]);
+  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays, sellRuleId, commissionRate, slippage]);
 
   const handleRun = useCallback(async () => {
     const cfg = baseConfig();
@@ -447,6 +451,31 @@ export default function Backtest({ data, stock }: Props) {
           </div>
         </div>
 
+        {/* 取引コスト設定 */}
+        <div>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
+            取引コスト設定
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500 flex items-center mb-1">
+                手数料率（%）
+                <InfoTooltip text="片道の手数料率。例: 0.1 → 売買ごとに0.1%のコスト" />
+              </label>
+              <input type="number" value={commissionRate} min={0} step={0.05} placeholder="0.1"
+                onChange={e => setCommissionRate(e.target.value)} className={`w-full ${inputCls}`} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 flex items-center mb-1">
+                スリッページ（%）
+                <InfoTooltip text="価格のずれによるコスト。例: 0.1 → 約定価格が0.1%不利になる想定" />
+              </label>
+              <input type="number" value={slippage} min={0} step={0.05} placeholder="0.1"
+                onChange={e => setSlippage(e.target.value)} className={`w-full ${inputCls}`} />
+            </div>
+          </div>
+        </div>
+
         {/* 売りルール選択 */}
         <div>
           <label className="text-xs text-slate-500 flex items-center mb-1">
@@ -656,9 +685,9 @@ export default function Backtest({ data, stock }: Props) {
       {result && !multiMode && (
         <>
           {/* サマリーカード */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
             <SummaryCard label="最終資産" value={`¥${result.finalCapital.toLocaleString()}`} positive={isPositive} />
-            <SummaryCard label="総リターン"
+            <SummaryCard label="純リターン"
               value={`${result.totalReturn >= 0 ? '+' : ''}¥${result.totalReturn.toLocaleString()}`}
               sub={`${result.totalReturn >= 0 ? '+' : ''}${result.totalReturnPct}%`}
               positive={isPositive} highlight />
@@ -666,6 +695,7 @@ export default function Backtest({ data, stock }: Props) {
             <SummaryCard label="最大DD" value={`-${result.maxDrawdown}%`} positive={result.maxDrawdown < 10} />
             <SummaryCard label="シャープ比" value={`${result.sharpeRatio}`} positive={result.sharpeRatio > 0} />
             <SummaryCard label="取引回数" value={`${result.totalTrades}回`} positive={result.totalTrades > 0} />
+            <SummaryCard label="総取引コスト" value={`-¥${result.totalCost.toLocaleString()}`} positive={false} />
           </div>
 
           {/* 決済理由の内訳 */}
