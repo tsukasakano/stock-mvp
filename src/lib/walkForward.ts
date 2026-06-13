@@ -1,6 +1,44 @@
 import type { ChartDataPoint, TradeRule } from '@/types/stock';
 import { runBacktest, type BacktestResult } from '@/lib/backtest';
 
+// ── Multi-stock types ──────────────────────────────────────────────────────
+
+export type StockWalkForwardInput = {
+  symbol: string;
+  name: string;
+  data: ChartDataPoint[];
+  rule: TradeRule;
+  sellRuleId?: string;
+  takeProfit: number;
+  trailingStop: number;
+  maxHoldDays: number;
+};
+
+export type SharedWalkForwardParams = {
+  trainDays: number;
+  testDays: number;
+  commissionRate: number;
+  slippage: number;
+};
+
+export type StockWalkForwardResult = {
+  symbol: string;
+  name: string;
+  consistencyScore: number;
+  avgTestReturn: number;
+  avgTestSharpe: number;
+  avgTestWinRate: number;
+  isReliable: boolean;
+  windows: WalkForwardWindow[];
+};
+
+export type MultiWalkForwardResult = {
+  stockResults: StockWalkForwardResult[];
+  avgConsistency: number;
+  avgTestReturn: number;
+  reliableCount: number;
+};
+
 export type WalkForwardConfig = {
   data: ChartDataPoint[];
   rule: TradeRule;
@@ -33,6 +71,49 @@ export type WalkForwardResult = {
   consistency: number;
   isReliable: boolean;  // consistency >= 0.7
 };
+
+export function runWalkForwardMultiple(
+  stocks: StockWalkForwardInput[],
+  shared: SharedWalkForwardParams,
+  allRules: TradeRule[],
+): MultiWalkForwardResult {
+  const stockResults: StockWalkForwardResult[] = stocks.map(stock => {
+    const result = runWalkForward({
+      data: stock.data,
+      rule: stock.rule,
+      allRules,
+      sellRuleId: stock.sellRuleId,
+      trainDays:    shared.trainDays,
+      testDays:     shared.testDays,
+      takeProfit:   stock.takeProfit,
+      trailingStop: stock.trailingStop,
+      maxHoldDays:  stock.maxHoldDays,
+      commissionRate: shared.commissionRate,
+      slippage:       shared.slippage,
+    });
+    return {
+      symbol:           stock.symbol,
+      name:             stock.name,
+      consistencyScore: result.consistency,
+      avgTestReturn:    result.avgTestReturn,
+      avgTestSharpe:    result.avgTestSharpe,
+      avgTestWinRate:   result.avgTestWinRate,
+      isReliable:       result.isReliable,
+      windows:          result.windows,
+    };
+  });
+
+  const n = stockResults.length;
+  const avgConsistency = n > 0
+    ? parseFloat((stockResults.reduce((s, r) => s + r.consistencyScore, 0) / n).toFixed(3))
+    : 0;
+  const avgTestReturn = n > 0
+    ? parseFloat((stockResults.reduce((s, r) => s + r.avgTestReturn, 0) / n).toFixed(2))
+    : 0;
+  const reliableCount = stockResults.filter(r => r.isReliable).length;
+
+  return { stockResults, avgConsistency, avgTestReturn, reliableCount };
+}
 
 function pearsonCorr(x: number[], y: number[]): number {
   const n = x.length;

@@ -10,8 +10,18 @@ import { loadRules } from '@/lib/ruleEngine';
 import { buildChartData } from '@/lib/indicators';
 import { fetchHistoricalData } from '@/lib/historicalData';
 import { generateMockData } from '@/lib/mockData';
-import { runWalkForward, type WalkForwardResult, type WalkForwardWindow } from '@/lib/walkForward';
-import type { TradeRule } from '@/types/stock';
+import { DEFAULT_STRATEGIES } from '@/lib/portfolioStrategy';
+import {
+  runWalkForward,
+  runWalkForwardMultiple,
+  type WalkForwardResult,
+  type WalkForwardWindow,
+  type MultiWalkForwardResult,
+  type StockWalkForwardResult,
+} from '@/lib/walkForward';
+import type { TradeRule, ChartDataPoint } from '@/types/stock';
+
+// ── Shared constants ──────────────────────────────────────────────────────
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#0f172a', border: '1px solid #1e293b',
@@ -29,7 +39,16 @@ function isDivergent(w: WalkForwardWindow): boolean {
   return w.trainResult.totalReturnPct > 0 && w.testResult.totalReturnPct < -1;
 }
 
-// Custom dot for the test line — red when window is divergent
+function consistencyColor(v: number): string {
+  return v >= 0.7 ? '#10b981' : v >= 0.4 ? '#f59e0b' : '#ef4444';
+}
+
+function consistencyLabel(v: number): string {
+  return v >= 0.7 ? '過学習なし' : v >= 0.4 ? '要注意' : '過学習の可能性';
+}
+
+// ── Custom dot for divergent windows ─────────────────────────────────────
+
 interface DotProps {
   cx?: number;
   cy?: number;
@@ -47,27 +66,24 @@ function TestDot({ cx = 0, cy = 0, payload }: DotProps) {
   );
 }
 
+// ── Consistency gauge ─────────────────────────────────────────────────────
+
 function ConsistencyGauge({ value, isReliable }: { value: number; isReliable: boolean }) {
   const pct = Math.round(((value + 1) / 2) * 100);
-  const color = value >= 0.7 ? '#10b981' : value >= 0.4 ? '#f59e0b' : '#ef4444';
-  const label = value >= 0.7 ? '過学習なし' : value >= 0.4 ? '要注意' : '過学習の可能性';
+  const color = consistencyColor(value);
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
-      {/* Large score */}
       <div className="flex flex-col items-center gap-1">
         <span className="text-xs text-slate-500 uppercase tracking-widest">一貫性スコア</span>
-        <span
-          className="text-5xl font-mono font-bold tabular-nums leading-none"
-          style={{ color }}
-        >
+        <span className="text-5xl font-mono font-bold tabular-nums leading-none" style={{ color }}>
           {value.toFixed(2)}
         </span>
         <span
           className="text-xs font-semibold px-3 py-1 rounded-full mt-1"
           style={{ color, background: `${color}20`, border: `1px solid ${color}50` }}
         >
-          {label}
+          {consistencyLabel(value)}
         </span>
         {isReliable && (
           <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 rounded-full px-2.5 py-0.5 font-semibold mt-0.5">
@@ -75,11 +91,8 @@ function ConsistencyGauge({ value, isReliable }: { value: number; isReliable: bo
           </span>
         )}
       </div>
-
-      {/* Bar */}
       <div className="w-full max-w-xs space-y-1">
         <div className="h-3 rounded-full bg-slate-800 overflow-hidden relative">
-          {/* Zero marker */}
           <div className="absolute top-0 left-1/2 w-0.5 h-full bg-slate-600 z-10" />
           <div
             className="h-full rounded-full transition-all duration-700"
@@ -91,13 +104,11 @@ function ConsistencyGauge({ value, isReliable }: { value: number; isReliable: bo
           <span>0</span>
           <span>+1 (正相関)</span>
         </div>
-        {/* Threshold markers */}
         <div className="relative h-2 w-full">
           <div className="absolute text-[8px] text-amber-600" style={{ left: '70%' }}>▲0.4</div>
           <div className="absolute text-[8px] text-emerald-600" style={{ left: '85%' }}>▲0.7</div>
         </div>
       </div>
-
       <p className="text-[10px] text-slate-600 text-center max-w-xs">
         学習期間と検証期間のリターンのPearson相関係数。0.7以上で過学習なし。
       </p>
@@ -105,10 +116,11 @@ function ConsistencyGauge({ value, isReliable }: { value: number; isReliable: bo
   );
 }
 
+// ── Verdict (single) ──────────────────────────────────────────────────────
+
 function VerdictSection({ result }: { result: WalkForwardResult }) {
   const { consistency, isReliable, avgTestReturn, avgTestSharpe, avgTestWinRate, windows } = result;
   const divergentCount = windows.filter(isDivergent).length;
-  const isProfit = avgTestReturn > 0;
 
   const suggestions: string[] = [];
   if (!isReliable) {
@@ -121,9 +133,9 @@ function VerdictSection({ result }: { result: WalkForwardResult }) {
   if (divergentCount > windows.length * 0.4) {
     suggestions.push(`乖離ウィンドウが多い（${divergentCount}/${windows.length}） — 相場環境への適応力を高める条件を追加する`);
   }
-  if (!isProfit) suggestions.push('平均検証リターンがマイナス — 買いルールの条件閾値を見直す');
+  if (!avgTestReturn) suggestions.push('平均検証リターンがマイナス — 買いルールの条件閾値を見直す');
 
-  const isGood = isReliable && isProfit && avgTestSharpe >= 0.5;
+  const isGood = isReliable && avgTestReturn > 0 && avgTestSharpe >= 0.5;
 
   return (
     <div className={`rounded-xl p-4 border ${isGood ? 'bg-emerald-950/30 border-emerald-900/60' : 'bg-amber-950/20 border-amber-900/40'}`}>
@@ -131,17 +143,10 @@ function VerdictSection({ result }: { result: WalkForwardResult }) {
         <span className="text-2xl mt-0.5">{isGood ? '✅' : '⚠️'}</span>
         <div className="space-y-2 flex-1">
           <p className={`text-sm font-bold ${isGood ? 'text-emerald-300' : 'text-amber-300'}`}>
-            {isGood
-              ? 'このルールは実用的です'
-              : consistency < 0.4
-              ? '過学習の可能性があります'
-              : 'このルールは改善の余地があります'}
+            {isGood ? 'このルールは実用的です' : consistency < 0.4 ? '過学習の可能性があります' : 'このルールは改善の余地があります'}
           </p>
           <p className="text-xs text-slate-400 leading-relaxed">
-            一貫性スコア {consistency.toFixed(3)}
-            {' / '}平均検証リターン {avgTestReturn >= 0 ? '+' : ''}{avgTestReturn}%
-            {' / '}平均シャープ比 {avgTestSharpe.toFixed(2)}
-            {' / '}勝率 {avgTestWinRate}%
+            一貫性スコア {consistency.toFixed(3)} / 平均検証リターン {avgTestReturn >= 0 ? '+' : ''}{avgTestReturn}% / 平均シャープ比 {avgTestSharpe.toFixed(2)} / 勝率 {avgTestWinRate}%
           </p>
           {suggestions.length > 0 && (
             <div className="mt-2 space-y-1">
@@ -149,8 +154,7 @@ function VerdictSection({ result }: { result: WalkForwardResult }) {
               <ul className="space-y-1">
                 {suggestions.map((s, i) => (
                   <li key={i} className="text-xs text-slate-400 flex gap-1.5">
-                    <span className="text-amber-500 flex-shrink-0">•</span>
-                    {s}
+                    <span className="text-amber-500 flex-shrink-0">•</span>{s}
                   </li>
                 ))}
               </ul>
@@ -162,31 +166,288 @@ function VerdictSection({ result }: { result: WalkForwardResult }) {
   );
 }
 
+// ── Window chart + table (shared between single and multi detail) ──────────
+
+function WindowsDetail({ windows }: { windows: WalkForwardWindow[] }) {
+  const lineData = windows.map(w => ({
+    window: `W${w.windowIndex}`,
+    testLabel: w.testStart,
+    train: w.trainResult.totalReturnPct,
+    test:  w.testResult.totalReturnPct,
+    divergent: isDivergent(w),
+  }));
+
+  return (
+    <div className="space-y-3 pt-1">
+      {lineData.length > 0 && (
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={lineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <XAxis dataKey="window" tick={{ fontSize: 9, fill: '#64748b' }} />
+            <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={v => `${v}%`} width={38} />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(v: unknown, name: unknown) => {
+                const num = Number(v);
+                return [`${num >= 0 ? '+' : ''}${num.toFixed(2)}%`, name === 'train' ? '学習' : '検証'];
+              }}
+              labelFormatter={(label, payload) => {
+                const p = payload?.[0]?.payload;
+                return p ? `${label} 検証: ${p.testLabel}${p.divergent ? ' ⚠' : ''}` : label;
+              }}
+            />
+            <Legend formatter={v => v === 'train' ? '学習' : '検証'} wrapperStyle={{ fontSize: '10px' }} />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2" />
+            <Line type="monotone" dataKey="train" stroke="#3b82f6" strokeWidth={1.5}
+              dot={{ r: 2, fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 1 }} />
+            <Line type="monotone" dataKey="test" stroke="#10b981" strokeWidth={1.5}
+              strokeDasharray="5 3" dot={<TestDot />} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="border-b border-slate-800 text-slate-500">
+              <th className="px-2 py-1.5 text-left">#</th>
+              <th className="px-2 py-1.5 text-left">学習期間</th>
+              <th className="px-2 py-1.5 text-left">検証期間</th>
+              <th className="px-2 py-1.5 text-right">学習R</th>
+              <th className="px-2 py-1.5 text-right">検証R</th>
+              <th className="px-2 py-1.5 text-right">勝率</th>
+              <th className="px-2 py-1.5 text-right">Sharpe</th>
+            </tr>
+          </thead>
+          <tbody>
+            {windows.map(w => {
+              const testPos = w.testResult.totalReturnPct >= 0;
+              const div     = isDivergent(w);
+              return (
+                <tr
+                  key={w.windowIndex}
+                  className={`border-b border-slate-800/50 transition-colors ${div ? 'bg-red-950/20' : 'hover:bg-slate-800/20'}`}
+                >
+                  <td className="px-2 py-1.5 font-mono text-slate-500">
+                    W{w.windowIndex}{div && <span className="ml-0.5 text-red-500">⚠</span>}
+                  </td>
+                  <td className="px-2 py-1.5 font-mono text-slate-500 text-[10px] whitespace-nowrap">
+                    {w.trainStart} 〜 {fmtDate(w.trainEnd)}
+                  </td>
+                  <td className="px-2 py-1.5 font-mono text-slate-500 text-[10px] whitespace-nowrap">
+                    {w.testStart} 〜 {fmtDate(w.testEnd)}
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.trainResult.totalReturnPct >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                    {w.trainResult.totalReturnPct >= 0 ? '+' : ''}{w.trainResult.totalReturnPct}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono font-semibold ${testPos ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {testPos ? '+' : ''}{w.testResult.totalReturnPct}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.testResult.winRate >= 50 ? 'text-slate-300' : 'text-amber-400'}`}>
+                    {w.testResult.winRate}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-mono ${w.testResult.sharpeRatio > 0 ? 'text-slate-300' : 'text-red-400'}`}>
+                    {w.testResult.sharpeRatio}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Multi-stock result card ────────────────────────────────────────────────
+
+function StockResultCard({
+  result,
+  expanded,
+  onToggle,
+}: {
+  result: StockWalkForwardResult;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const color = consistencyColor(result.consistencyScore);
+  const retPos = result.avgTestReturn >= 0;
+
+  return (
+    <div className={`rounded-xl border transition-colors ${result.isReliable ? 'border-emerald-900/50 bg-emerald-950/10' : 'border-slate-800 bg-slate-900'}`}>
+      <button
+        onClick={onToggle}
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-800/30 transition-colors rounded-xl"
+      >
+        {/* 一貫性スコア */}
+        <div
+          className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 border"
+          style={{ background: `${color}15`, borderColor: `${color}40` }}
+        >
+          <span className="text-sm font-mono font-bold leading-none" style={{ color }}>
+            {result.consistencyScore.toFixed(2)}
+          </span>
+          <span className="text-[8px] text-slate-500 mt-0.5">一貫性</span>
+        </div>
+
+        {/* 銘柄名・バッジ */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-slate-200">{result.name}</span>
+            <span className="text-[10px] text-slate-500">{result.symbol}</span>
+            {result.isReliable && (
+              <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-900 rounded-full px-1.5 py-0.5">
+                ✓ 信頼性HIGH
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-[11px] flex-wrap">
+            <span className={retPos ? 'text-emerald-400' : 'text-red-400'}>
+              {retPos ? '+' : ''}{result.avgTestReturn}%
+            </span>
+            <span className="text-slate-500">勝率 {result.avgTestWinRate}%</span>
+            <span className="text-slate-500">Sharpe {result.avgTestSharpe.toFixed(2)}</span>
+            <span className="text-slate-600">{result.windows.length}窓</span>
+          </div>
+        </div>
+
+        {/* 展開矢印 */}
+        <span className={`text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+
+      {expanded && result.windows.length > 0 && (
+        <div className="px-4 pb-4 border-t border-slate-800">
+          <WindowsDetail windows={result.windows} />
+        </div>
+      )}
+      {expanded && result.windows.length === 0 && (
+        <div className="px-4 pb-3 border-t border-slate-800 pt-3">
+          <p className="text-xs text-slate-500">データが不足しているためウィンドウを生成できませんでした。</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Multi verdict ─────────────────────────────────────────────────────────
+
+function MultiVerdictSection({ result }: { result: MultiWalkForwardResult }) {
+  const { reliableCount, stockResults, avgConsistency, avgTestReturn } = result;
+  const total = stockResults.length;
+
+  const isGood    = reliableCount >= 3;
+  const isPartial = reliableCount >= 1 && reliableCount < 3;
+  const verdictText = isGood
+    ? 'ポートフォリオ戦略は実用的です'
+    : isPartial
+    ? '一部銘柄のみ実用的です'
+    : '戦略の見直しが必要です';
+  const bgCls = isGood
+    ? 'bg-emerald-950/30 border-emerald-900/60'
+    : isPartial
+    ? 'bg-amber-950/20 border-amber-900/40'
+    : 'bg-red-950/20 border-red-900/40';
+  const textCls = isGood ? 'text-emerald-300' : isPartial ? 'text-amber-300' : 'text-red-300';
+  const icon = isGood ? '✅' : isPartial ? '⚠️' : '❌';
+
+  const suggestions: string[] = [];
+  if (!isGood) {
+    const lowConsistency = stockResults.filter(r => !r.isReliable).map(r => r.name);
+    if (lowConsistency.length > 0) {
+      suggestions.push(`一貫性が低い銘柄（${lowConsistency.join('・')}）のルールを見直す`);
+    }
+    if (avgConsistency < 0.4) {
+      suggestions.push('学習期間を延ばす（例: 504日）か、よりシンプルなルールを試す');
+    }
+    if (avgTestReturn < 0) {
+      suggestions.push('TP・TSP設定を見直し、エントリー精度を改善する');
+    }
+  }
+
+  return (
+    <div className={`rounded-xl p-4 border ${bgCls}`}>
+      <div className="flex items-start gap-3">
+        <span className="text-2xl mt-0.5">{icon}</span>
+        <div className="space-y-2 flex-1">
+          <p className={`text-sm font-bold ${textCls}`}>{verdictText}</p>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            信頼できる銘柄: {reliableCount}/{total}銘柄 / 平均一貫性スコア: {avgConsistency.toFixed(3)} / 平均検証リターン: {avgTestReturn >= 0 ? '+' : ''}{avgTestReturn}%
+          </p>
+          {suggestions.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">改善提案</p>
+              <ul className="space-y-1">
+                {suggestions.map((s, i) => (
+                  <li key={i} className="text-xs text-slate-400 flex gap-1.5">
+                    <span className="text-amber-500 flex-shrink-0">•</span>{s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────
+
 export default function WalkForward() {
   const [rules] = useState<TradeRule[]>(() => loadRules());
+  const [multiMode, setMultiMode] = useState(false);
+
+  // Single-mode state
   const [selectedStockValue, setSelectedStockValue] = useState(ALL_STOCKS[0]?.value ?? '');
-  const [useHistorical, setUseHistorical] = useState(false);
-  const [buyRuleId, setBuyRuleId] = useState(() => rules.find(r => r.type === 'buy')?.id ?? '');
+  const [buyRuleId, setBuyRuleId]   = useState(() => rules.find(r => r.type === 'buy')?.id ?? '');
   const [sellRuleId, setSellRuleId] = useState('');
-  const [trainDays, setTrainDays] = useState('252');
-  const [testDays, setTestDays] = useState('63');
-  const [takeProfit, setTakeProfit] = useState('10');
-  const [trailingStop, setTrailingStop] = useState('3');
-  const [maxHoldDays, setMaxHoldDays] = useState('20');
+  const [wfResult, setWfResult]     = useState<WalkForwardResult | null>(null);
+
+  // Shared params
+  const [useHistorical, setUseHistorical]   = useState(false);
+  const [trainDays, setTrainDays]           = useState('252');
+  const [testDays, setTestDays]             = useState('63');
+  const [takeProfit, setTakeProfit]         = useState('10');
+  const [trailingStop, setTrailingStop]     = useState('3');
+  const [maxHoldDays, setMaxHoldDays]       = useState('20');
   const [commissionRate, setCommissionRate] = useState('0.1');
-  const [slippage, setSlippage] = useState('0.1');
+  const [slippage, setSlippage]             = useState('0.1');
 
-  const [loading, setLoading] = useState(false);
+  // Multi-mode state
+  const [multiResult, setMultiResult]       = useState<MultiWalkForwardResult | null>(null);
+  const [multiProgress, setMultiProgress]   = useState<{ done: number; total: number } | null>(null);
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
+
+  // Common state
+  const [loading, setLoading]     = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [wfResult, setWfResult] = useState<WalkForwardResult | null>(null);
 
-  const dataCache = useRef<Map<string, ReturnType<typeof buildChartData>>>(new Map());
+  const dataCache = useRef<Map<string, ChartDataPoint[]>>(new Map());
 
   const buyRules  = rules.filter(r => r.type === 'buy');
   const sellRules = rules.filter(r => r.type === 'sell');
   const selectedStock = ALL_STOCKS.find(s => s.value === selectedStockValue) ?? ALL_STOCKS[0];
 
-  const handleRun = useCallback(async () => {
+  const getOrFetchData = useCallback(async (symbol: string): Promise<ChartDataPoint[] | null> => {
+    const cacheKey = `${symbol}-${useHistorical}`;
+    const cached = dataCache.current.get(cacheKey);
+    if (cached) return cached;
+
+    if (useHistorical) {
+      const raw = await fetchHistoricalData(`${symbol}.T`);
+      if (!raw) return null;
+      const data = buildChartData(raw);
+      dataCache.current.set(cacheKey, data);
+      return data;
+    } else {
+      const stock = ALL_STOCKS.find(s => s.value === symbol);
+      if (!stock) return null;
+      const data = buildChartData(generateMockData(stock));
+      dataCache.current.set(cacheKey, data);
+      return data;
+    }
+  }, [useHistorical]);
+
+  const handleRunSingle = useCallback(async () => {
     const buyRule = rules.find(r => r.id === buyRuleId);
     if (!buyRule) return;
 
@@ -195,20 +456,10 @@ export default function WalkForward() {
     setWfResult(null);
 
     try {
-      let chartData = dataCache.current.get(`${selectedStockValue}-${useHistorical}`);
-
+      const chartData = await getOrFetchData(selectedStockValue);
       if (!chartData) {
-        if (useHistorical) {
-          const raw = await fetchHistoricalData(`${selectedStockValue}.T`);
-          if (!raw) {
-            setLoadError('リアルデータが見つかりません。データを更新してください。');
-            return;
-          }
-          chartData = buildChartData(raw);
-        } else {
-          chartData = buildChartData(generateMockData(selectedStock));
-        }
-        dataCache.current.set(`${selectedStockValue}-${useHistorical}`, chartData);
+        setLoadError('リアルデータが見つかりません。データを更新してください。');
+        return;
       }
 
       const result = runWalkForward({
@@ -227,31 +478,138 @@ export default function WalkForward() {
 
       setWfResult(result);
     } catch (e) {
-      console.error('[walk-forward]', e);
+      console.error('[walk-forward single]', e);
       setLoadError('検証中にエラーが発生しました');
     } finally {
       setLoading(false);
     }
-  }, [rules, buyRuleId, sellRuleId, selectedStockValue, selectedStock, useHistorical, trainDays, testDays, takeProfit, trailingStop, maxHoldDays, commissionRate, slippage]);
+  }, [rules, buyRuleId, sellRuleId, selectedStockValue, trainDays, testDays,
+      takeProfit, trailingStop, maxHoldDays, commissionRate, slippage, getOrFetchData]);
 
-  const lineData = wfResult?.windows.map(w => ({
-    window: `W${w.windowIndex}`,
-    testLabel: w.testStart,
-    train: w.trainResult.totalReturnPct,
-    test:  w.testResult.totalReturnPct,
-    divergent: isDivergent(w),
-  })) ?? [];
+  const handleRunMulti = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    setMultiResult(null);
+    setExpandedSymbol(null);
+    setMultiProgress({ done: 0, total: DEFAULT_STRATEGIES.length });
+
+    const shared = {
+      trainDays:      parseInt(trainDays)      || 252,
+      testDays:       parseInt(testDays)       || 63,
+      commissionRate: parseFloat(commissionRate) / 100 || 0.001,
+      slippage:       parseFloat(slippage)       / 100 || 0.001,
+    };
+
+    try {
+      const inputs: Parameters<typeof runWalkForwardMultiple>[0] = [];
+      let done = 0;
+
+      for (const strategy of DEFAULT_STRATEGIES) {
+        const buyRule = rules.find(r => r.id === strategy.buyRuleId);
+        const sellRule = strategy.sellRuleId ? rules.find(r => r.id === strategy.sellRuleId) : undefined;
+        if (!buyRule) { done++; setMultiProgress({ done, total: DEFAULT_STRATEGIES.length }); continue; }
+
+        const chartData = await getOrFetchData(strategy.symbol);
+        done++;
+        setMultiProgress({ done, total: DEFAULT_STRATEGIES.length });
+
+        if (!chartData) continue;
+
+        inputs.push({
+          symbol:       strategy.symbol,
+          name:         strategy.name,
+          data:         chartData,
+          rule:         buyRule,
+          sellRuleId:   sellRule?.id,
+          takeProfit:   strategy.takeProfit / 100,
+          trailingStop: strategy.trailingStop / 100,
+          maxHoldDays:  strategy.maxHoldDays,
+        });
+      }
+
+      const result = runWalkForwardMultiple(inputs, shared, rules);
+      setMultiResult(result);
+    } catch (e) {
+      console.error('[walk-forward multi]', e);
+      setLoadError('検証中にエラーが発生しました');
+    } finally {
+      setLoading(false);
+      setMultiProgress(null);
+    }
+  }, [rules, trainDays, testDays, commissionRate, slippage, getOrFetchData]);
+
+  const resetResults = () => {
+    setWfResult(null);
+    setMultiResult(null);
+    setLoadError(null);
+  };
+
+  // Shared params panel (used by both modes)
+  const sharedParams = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">学習期間（日）</label>
+          <input type="number" value={trainDays} min={60} step={21}
+            onChange={e => { setTrainDays(e.target.value); resetResults(); }}
+            className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">検証期間（日）</label>
+          <input type="number" value={testDays} min={21} step={21}
+            onChange={e => { setTestDays(e.target.value); resetResults(); }}
+            className={inputCls} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">手数料（%）</label>
+          <input type="number" value={commissionRate} min={0} step={0.05}
+            onChange={e => { setCommissionRate(e.target.value); resetResults(); }}
+            className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">スリッページ（%）</label>
+          <input type="number" value={slippage} min={0} step={0.05}
+            onChange={e => { setSlippage(e.target.value); resetResults(); }}
+            className={inputCls} />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
 
       {/* ─── 設定パネル ──────────────────────────────── */}
       <div className="bg-slate-800/60 rounded-xl p-4 border border-slate-700 space-y-4">
+
+        {/* ヘッダー行：モード切替 + データソーストグル */}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ウォークフォワード設定</p>
+          {/* モード切替 */}
           <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
             <button
-              onClick={() => { setUseHistorical(false); setWfResult(null); }}
+              onClick={() => { setMultiMode(false); resetResults(); }}
+              className={`text-[10px] px-3 py-1 rounded-md transition-colors font-medium ${
+                !multiMode ? 'bg-slate-600 text-slate-100' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              単一銘柄
+            </button>
+            <button
+              onClick={() => { setMultiMode(true); resetResults(); }}
+              className={`text-[10px] px-3 py-1 rounded-md transition-colors font-medium ${
+                multiMode ? 'bg-blue-700 text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              複数銘柄同時検証
+            </button>
+          </div>
+
+          {/* データソーストグル */}
+          <div className="flex items-center gap-0.5 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
+            <button
+              onClick={() => { setUseHistorical(false); dataCache.current.clear(); resetResults(); }}
               className={`text-[10px] px-2.5 py-1 rounded-md transition-colors font-medium ${
                 !useHistorical ? 'bg-slate-600 text-slate-100' : 'text-slate-500 hover:text-slate-300'
               }`}
@@ -259,7 +617,7 @@ export default function WalkForward() {
               モック
             </button>
             <button
-              onClick={() => { setUseHistorical(true); setWfResult(null); }}
+              onClick={() => { setUseHistorical(true); dataCache.current.clear(); resetResults(); }}
               className={`text-[10px] px-2.5 py-1 rounded-md transition-colors font-medium ${
                 useHistorical ? 'bg-emerald-700 text-white' : 'text-slate-500 hover:text-slate-300'
               }`}
@@ -269,67 +627,78 @@ export default function WalkForward() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">対象銘柄</label>
-            <select
-              value={selectedStockValue}
-              onChange={e => { setSelectedStockValue(e.target.value); setWfResult(null); dataCache.current.clear(); }}
-              className={inputCls}
-            >
-              {ALL_STOCKS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}（{s.value}）</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">買いルール</label>
-            <select value={buyRuleId} onChange={e => { setBuyRuleId(e.target.value); setWfResult(null); }} className={inputCls}>
-              {buyRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">売りルール（オプション）</label>
-            <select value={sellRuleId} onChange={e => { setSellRuleId(e.target.value); setWfResult(null); }} className={inputCls}>
-              <option value="">自動（有効な売りルールをすべて使用）</option>
-              {sellRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-slate-500 block mb-1">学習期間（日）</label>
-              <input type="number" value={trainDays} min={60} step={21}
-                onChange={e => { setTrainDays(e.target.value); setWfResult(null); }}
-                className={inputCls} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-1">検証期間（日）</label>
-              <input type="number" value={testDays} min={21} step={21}
-                onChange={e => { setTestDays(e.target.value); setWfResult(null); }}
-                className={inputCls} />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">パラメータ</p>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {[
-              { label: 'TP（%）',         val: takeProfit,    set: setTakeProfit,    min: 0.5, step: 0.5 },
-              { label: 'TSP（%）',        val: trailingStop,  set: setTrailingStop,  min: 0.5, step: 0.5 },
-              { label: '最大保有日',       val: maxHoldDays,   set: setMaxHoldDays,   min: 1,   step: 1   },
-              { label: '手数料（%）',      val: commissionRate,set: setCommissionRate,min: 0,   step: 0.05},
-              { label: 'スリッページ（%）', val: slippage,      set: setSlippage,      min: 0,   step: 0.05},
-            ].map(({ label, val, set, min, step }) => (
-              <div key={label}>
-                <label className="text-xs text-slate-500 block mb-1">{label}</label>
-                <input type="number" value={val} min={min} step={step}
-                  onChange={e => { set(e.target.value); setWfResult(null); }}
-                  className={inputCls} />
+        {/* ── 単一銘柄モード ── */}
+        {!multiMode && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">対象銘柄</label>
+                <select
+                  value={selectedStockValue}
+                  onChange={e => { setSelectedStockValue(e.target.value); resetResults(); dataCache.current.clear(); }}
+                  className={inputCls}
+                >
+                  {ALL_STOCKS.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}（{s.value}）</option>
+                  ))}
+                </select>
               </div>
-            ))}
-          </div>
-        </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">買いルール</label>
+                <select value={buyRuleId} onChange={e => { setBuyRuleId(e.target.value); resetResults(); }} className={inputCls}>
+                  {buyRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">売りルール（オプション）</label>
+                <select value={sellRuleId} onChange={e => { setSellRuleId(e.target.value); resetResults(); }} className={inputCls}>
+                  <option value="">自動（有効な売りルールをすべて使用）</option>
+                  {sellRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">TP（%）</label>
+                  <input type="number" value={takeProfit} min={0.5} step={0.5}
+                    onChange={e => { setTakeProfit(e.target.value); resetResults(); }} className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">TSP（%）</label>
+                  <input type="number" value={trailingStop} min={0.5} step={0.5}
+                    onChange={e => { setTrailingStop(e.target.value); resetResults(); }} className={inputCls} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">最大保有日</label>
+                  <input type="number" value={maxHoldDays} min={1} step={1}
+                    onChange={e => { setMaxHoldDays(e.target.value); resetResults(); }} className={inputCls} />
+                </div>
+              </div>
+            </div>
+            {sharedParams}
+          </>
+        )}
+
+        {/* ── 複数銘柄モード ── */}
+        {multiMode && (
+          <>
+            <div className="space-y-2">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider">対象銘柄（ポートフォリオ戦略の8銘柄）</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {DEFAULT_STRATEGIES.map(s => {
+                  const buyRule = rules.find(r => r.id === s.buyRuleId);
+                  return (
+                    <div key={s.symbol} className="bg-slate-900 rounded-lg px-2.5 py-2 border border-slate-800">
+                      <p className="text-xs font-medium text-slate-300">{s.name}</p>
+                      <p className="text-[10px] text-slate-600 truncate">{buyRule?.name ?? s.buyRuleId}</p>
+                      <p className="text-[10px] text-slate-600">TP:{s.takeProfit}% TS:{s.trailingStop}%</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {sharedParams}
+          </>
+        )}
 
         {loadError && (
           <p className="text-xs text-red-400 bg-red-950/40 border border-red-900/50 rounded-lg px-3 py-2">
@@ -337,9 +706,25 @@ export default function WalkForward() {
           </p>
         )}
 
+        {/* プログレス */}
+        {loading && multiProgress && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>データ取得・検証中...</span>
+              <span className="font-mono">{multiProgress.done}/{multiProgress.total}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                style={{ width: `${(multiProgress.done / multiProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <button
-          onClick={handleRun}
-          disabled={loading || !buyRuleId}
+          onClick={multiMode ? handleRunMulti : handleRunSingle}
+          disabled={loading || (!multiMode && !buyRuleId)}
           className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {loading ? (
@@ -347,29 +732,30 @@ export default function WalkForward() {
               <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
               検証実行中...
             </>
+          ) : multiMode ? (
+            '複数銘柄ウォークフォワード検証実行'
           ) : (
             'ウォークフォワード検証実行'
           )}
         </button>
       </div>
 
-      {/* ─── 結果 ────────────────────────────────────────── */}
-      {wfResult && (
+      {/* ─── 単一銘柄 結果 ─────────────────────────────── */}
+      {!multiMode && wfResult && (
         wfResult.windows.length === 0 ? (
           <div className="bg-slate-900/60 rounded-xl p-6 border border-slate-800/60 text-center">
             <p className="text-sm text-slate-400">データが不足しています。学習期間・検証期間を短くするか、より長いデータ期間を選択してください。</p>
           </div>
         ) : (
           <div className="space-y-4">
-
-            {/* ─── 大型一貫性ゲージ ─── */}
+            {/* 大型一貫性ゲージ */}
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 flex justify-center">
               <div className="w-full max-w-sm">
                 <ConsistencyGauge value={wfResult.consistency} isReliable={wfResult.isReliable} />
               </div>
             </div>
 
-            {/* ─── サマリーカード ─── */}
+            {/* サマリーカード */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div className="rounded-xl p-3 border bg-slate-900 border-slate-800">
                 <p className="text-[10px] text-slate-500 mb-1">検証ウィンドウ数</p>
@@ -395,126 +781,129 @@ export default function WalkForward() {
               </div>
             </div>
 
-            {/* ─── 乖離ハイライトチャート ─── */}
-            {lineData.length > 0 && (
-              <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-slate-400">ウィンドウ別リターン（学習 vs 検証）</p>
-                  <span className="text-[10px] text-slate-600 flex items-center gap-1">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500/50 border border-red-500" />
-                    乖離ウィンドウ（学習＋・検証−）
-                  </span>
-                </div>
-                <ResponsiveContainer width="100%" height={230}>
-                  <LineChart data={lineData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="window" tick={{ fontSize: 10, fill: '#64748b' }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => `${v}%`} width={42} />
-                    <Tooltip
-                      contentStyle={TOOLTIP_STYLE}
-                      formatter={(v: unknown, name: unknown) => {
-                        const num = Number(v);
-                        return [`${num >= 0 ? '+' : ''}${num.toFixed(2)}%`, name === 'train' ? '学習期間' : '検証期間'];
-                      }}
-                      labelFormatter={(label, payload) => {
-                        const p = payload?.[0]?.payload;
-                        const div = p?.divergent ? ' ⚠ 乖離' : '';
-                        return p ? `${label} 検証開始: ${p.testLabel}${div}` : label;
-                      }}
-                    />
-                    <Legend formatter={v => v === 'train' ? '学習期間' : '検証期間'} />
-                    <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2" />
-                    <Line
-                      type="monotone"
-                      dataKey="train"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 1 }}
-                      activeDot={{ r: 5 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="test"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      dot={<TestDot />}
-                      activeDot={{ r: 5 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+            {/* 乖離ハイライトチャート + テーブル */}
+            <div className="bg-slate-900 rounded-xl p-4 border border-slate-800 space-y-1">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-slate-400">ウィンドウ別リターン（学習 vs 検証）</p>
+                <span className="text-[10px] text-slate-600 flex items-center gap-1">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500/50 border border-red-500" />
+                  乖離ウィンドウ
+                </span>
               </div>
-            )}
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart
+                  data={wfResult.windows.map(w => ({
+                    window: `W${w.windowIndex}`,
+                    testLabel: w.testStart,
+                    train: w.trainResult.totalReturnPct,
+                    test:  w.testResult.totalReturnPct,
+                    divergent: isDivergent(w),
+                  }))}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="window" tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={v => `${v}%`} width={42} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(v: unknown, name: unknown) => {
+                      const num = Number(v);
+                      return [`${num >= 0 ? '+' : ''}${num.toFixed(2)}%`, name === 'train' ? '学習期間' : '検証期間'];
+                    }}
+                    labelFormatter={(label, payload) => {
+                      const p = payload?.[0]?.payload;
+                      return p ? `${label} 検証: ${p.testLabel}${p.divergent ? ' ⚠ 乖離' : ''}` : label;
+                    }}
+                  />
+                  <Legend formatter={v => v === 'train' ? '学習期間' : '検証期間'} />
+                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2" />
+                  <Line type="monotone" dataKey="train" stroke="#3b82f6" strokeWidth={2}
+                    dot={{ r: 3, fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 1 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="test" stroke="#10b981" strokeWidth={2}
+                    strokeDasharray="5 3" dot={<TestDot />} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
 
-            {/* ─── ウィンドウ別詳細テーブル ─── */}
+            {/* テーブル */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
               <div className="px-4 py-2.5 border-b border-slate-800">
                 <p className="text-xs font-semibold text-slate-400">ウィンドウ別詳細</p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-500">
-                      <th className="px-3 py-2 text-left font-medium">#</th>
-                      <th className="px-3 py-2 text-left font-medium">学習期間</th>
-                      <th className="px-3 py-2 text-left font-medium">検証期間</th>
-                      <th className="px-3 py-2 text-right font-medium">学習R</th>
-                      <th className="px-3 py-2 text-right font-medium">検証R</th>
-                      <th className="px-3 py-2 text-right font-medium">勝率</th>
-                      <th className="px-3 py-2 text-right font-medium">Sharpe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {wfResult.windows.map(w => {
-                      const testPos  = w.testResult.totalReturnPct >= 0;
-                      const trainPos = w.trainResult.totalReturnPct >= 0;
-                      const div      = isDivergent(w);
-                      return (
-                        <tr
-                          key={w.windowIndex}
-                          className={`border-b border-slate-800/60 transition-colors ${
-                            div ? 'bg-red-950/20 hover:bg-red-950/30' : 'hover:bg-slate-800/30'
-                          }`}
-                        >
-                          <td className="px-3 py-2.5 font-mono text-slate-500 whitespace-nowrap">
-                            W{w.windowIndex}
-                            {div && <span className="ml-1 text-red-500">⚠</span>}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono text-slate-500 text-[10px] whitespace-nowrap">
-                            {w.trainStart} 〜 {fmtDate(w.trainEnd)}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono text-slate-500 text-[10px] whitespace-nowrap">
-                            {w.testStart} 〜 {fmtDate(w.testEnd)}
-                          </td>
-                          <td className={`px-3 py-2.5 text-right font-mono ${trainPos ? 'text-blue-400' : 'text-red-400'}`}>
-                            {trainPos ? '+' : ''}{w.trainResult.totalReturnPct}%
-                          </td>
-                          <td className={`px-3 py-2.5 text-right font-mono font-semibold ${testPos ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {testPos ? '+' : ''}{w.testResult.totalReturnPct}%
-                          </td>
-                          <td className={`px-3 py-2.5 text-right font-mono ${w.testResult.winRate >= 50 ? 'text-slate-300' : 'text-amber-400'}`}>
-                            {w.testResult.winRate}%
-                          </td>
-                          <td className={`px-3 py-2.5 text-right font-mono ${w.testResult.sharpeRatio > 0 ? 'text-slate-300' : 'text-red-400'}`}>
-                            {w.testResult.sharpeRatio}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <WindowsDetail windows={wfResult.windows} />
               </div>
             </div>
 
-            {/* ─── 総合判定 ─── */}
             <VerdictSection result={wfResult} />
-
           </div>
         )
       )}
 
+      {/* ─── 複数銘柄 結果 ──────────────────────────────── */}
+      {multiMode && multiResult && (
+        <div className="space-y-4">
+
+          {/* 全体サマリー */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className={`rounded-xl p-4 border flex flex-col items-center justify-center gap-1 ${
+              multiResult.reliableCount >= 3 ? 'bg-emerald-950/30 border-emerald-900/60'
+              : multiResult.reliableCount >= 1 ? 'bg-amber-950/20 border-amber-900/40'
+              : 'bg-red-950/20 border-red-900/40'
+            }`}>
+              <span className={`text-2xl font-mono font-bold ${
+                multiResult.reliableCount >= 3 ? 'text-emerald-400'
+                : multiResult.reliableCount >= 1 ? 'text-amber-400'
+                : 'text-red-400'
+              }`}>
+                {multiResult.reliableCount}/{multiResult.stockResults.length}
+              </span>
+              <span className="text-[10px] text-slate-500">信頼できる銘柄数</span>
+            </div>
+            <div className="rounded-xl p-4 border bg-slate-900 border-slate-800 flex flex-col items-center justify-center gap-1">
+              <span
+                className="text-xl font-mono font-bold"
+                style={{ color: consistencyColor(multiResult.avgConsistency) }}
+              >
+                {multiResult.avgConsistency.toFixed(3)}
+              </span>
+              <span className="text-[10px] text-slate-500">平均一貫性スコア</span>
+            </div>
+            <div className={`rounded-xl p-4 border flex flex-col items-center justify-center gap-1 ${
+              multiResult.avgTestReturn >= 0
+                ? 'bg-emerald-950/30 border-emerald-900/60'
+                : 'bg-red-950/20 border-red-900/40'
+            }`}>
+              <span className={`text-xl font-mono font-bold ${multiResult.avgTestReturn >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {multiResult.avgTestReturn >= 0 ? '+' : ''}{multiResult.avgTestReturn}%
+              </span>
+              <span className="text-[10px] text-slate-500">平均検証リターン</span>
+            </div>
+          </div>
+
+          {/* 銘柄別カード */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-400">銘柄別結果</p>
+            {multiResult.stockResults
+              .slice()
+              .sort((a, b) => b.consistencyScore - a.consistencyScore)
+              .map(r => (
+                <StockResultCard
+                  key={r.symbol}
+                  result={r}
+                  expanded={expandedSymbol === r.symbol}
+                  onToggle={() => setExpandedSymbol(prev => prev === r.symbol ? null : r.symbol)}
+                />
+              ))}
+          </div>
+
+          {/* 総合判定 */}
+          <MultiVerdictSection result={multiResult} />
+        </div>
+      )}
+
       <p className="text-[10px] text-slate-700 text-center">
-        ※ ウォークフォワード検証は過学習の有無を確認するための参考指標です。将来の収益を保証するものではありません。
+        ※ 過去の検証結果は将来の収益を保証するものではありません。投資は自己責任でお願いします。
       </p>
     </div>
   );
