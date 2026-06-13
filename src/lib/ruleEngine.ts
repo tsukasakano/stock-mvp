@@ -135,6 +135,22 @@ export const DEFAULT_RULES: TradeRule[] = [
     logic: 'AND',
     enabled: true,
   },
+  {
+    id: 'preset-simple-rsi-35',
+    name: 'シンプルRSIルール（RSI<35）',
+    type: 'buy',
+    conditions: [{ indicator: 'rsi', operator: '<', value: 35 }],
+    logic: 'AND',
+    enabled: true,
+  },
+  {
+    id: 'preset-simple-rsi-40',
+    name: '超シンプルRSIルール（RSI<40）',
+    type: 'buy',
+    conditions: [{ indicator: 'rsi', operator: '<', value: 40 }],
+    logic: 'AND',
+    enabled: true,
+  },
 ];
 
 // ─── ストレージ ───────────────────────────────────────────
