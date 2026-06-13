@@ -28,6 +28,7 @@ interface Props {
 const INDICATOR_LABELS: Record<RuleIndicator, string> = {
   rsi:            'RSI(14)',
   macd:           'MACD',
+  signal:         'MACDシグナル',
   price:          '株価',
   ma5:            'MA5',
   ma25:           'MA25',

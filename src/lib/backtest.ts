@@ -9,6 +9,7 @@ export type BacktestConfig = {
   takeProfit?: number;    // 利益確定ライン (e.g. 0.05 = +5%)
   trailingStop?: number;  // トレイリングストップ (e.g. 0.03 = 高値から-3%)
   maxHoldDays?: number;   // 最大保有日数
+  sellRuleId?: string;    // 明示的に使用する売りルールID
 };
 
 export type ExitReason =
@@ -70,6 +71,7 @@ function indicatorValue(
   switch (indicator) {
     case 'rsi':      return d.rsi;
     case 'macd':     return d.macd;
+    case 'signal':   return d.signal;
     case 'price':    return d.close;
     case 'volume':   return d.volume;
     case 'ma5':      return sma(data, 5, idx);
@@ -216,6 +218,8 @@ export function runBacktest(
   const exitRules: TradeRule[] =
     rule.type === 'sell'
       ? [rule]
+      : config.sellRuleId
+      ? allRules.filter(r => r.id === config.sellRuleId)
       : allRules.filter(r => r.enabled && r.type === 'sell');
 
   let cash = initialCapital;

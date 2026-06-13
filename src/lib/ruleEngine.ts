@@ -99,6 +99,42 @@ export const DEFAULT_RULES: TradeRule[] = [
     logic: 'AND',
     enabled: true,
   },
+  {
+    id: 'preset-sell-trend-reversal',
+    name: 'トレンド転換売りルール',
+    type: 'sell',
+    conditions: [
+      { indicator: 'rsi',         operator: '>',  value: 70 },
+      { indicator: 'macd',        operator: '<',  value: 0,  compareIndicator: 'signal' },
+      { indicator: 'macd',        operator: '<',  value: 0  },
+      { indicator: 'priceVsMA20', operator: '>',  value: 1.1 },
+    ],
+    logic: 'OR',
+    enabled: true,
+  },
+  {
+    id: 'preset-sell-profit-take',
+    name: '利益確定売りルール',
+    type: 'sell',
+    conditions: [
+      { indicator: 'rsi',  operator: '>',  value: 65 },
+      { indicator: 'macd', operator: '<',  value: 0,  compareIndicator: 'signal' },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
+  {
+    id: 'preset-sell-bearish',
+    name: '弱気転換売りルール',
+    type: 'sell',
+    conditions: [
+      { indicator: 'rsiDivergence', operator: '>=', value: 1    },
+      { indicator: 'volumeRatio',   operator: '>',  value: 1.5  },
+      { indicator: 'priceVsMA20',   operator: '>',  value: 1.05 },
+    ],
+    logic: 'AND',
+    enabled: true,
+  },
 ];
 
 // ─── ストレージ ───────────────────────────────────────────
@@ -157,6 +193,7 @@ function indicatorValue(
   switch (indicator) {
     case 'rsi':      return d.rsi;
     case 'macd':     return d.macd;
+    case 'signal':   return d.signal;
     case 'price':    return d.close;
     case 'volume':   return d.volume;
     case 'ma5':      return sma(data, 5, idx);

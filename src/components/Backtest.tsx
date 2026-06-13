@@ -118,6 +118,7 @@ function StockCard({ sr }: { sr: StockBacktestResult }) {
 export default function Backtest({ data, stock }: Props) {
   const [rules] = useState<TradeRule[]>(() => loadRules());
   const [selectedRuleId, setSelectedRuleId] = useState<string>(rules[0]?.id ?? '');
+  const [sellRuleId, setSellRuleId] = useState<string>('');
   const [initialCapital, setInitialCapital] = useState(1_000_000);
   const [positionSize, setPositionSize] = useState(50);
   const [takeProfit, setTakeProfit] = useState('5');
@@ -187,8 +188,9 @@ export default function Backtest({ data, stock }: Props) {
       takeProfit:   takeProfit   !== '' ? parseFloat(takeProfit)   / 100 : undefined,
       trailingStop: trailingStop !== '' ? parseFloat(trailingStop) / 100 : undefined,
       maxHoldDays:  maxHoldDays  !== '' ? parseInt(maxHoldDays)          : undefined,
+      sellRuleId:   sellRuleId   !== '' ? sellRuleId                      : undefined,
     };
-  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays]);
+  }, [rules, selectedRuleId, initialCapital, positionSize, takeProfit, trailingStop, maxHoldDays, sellRuleId]);
 
   const handleRun = useCallback(async () => {
     const cfg = baseConfig();
@@ -266,6 +268,24 @@ export default function Backtest({ data, stock }: Props) {
     setTakeProfit(String(rec.takeProfit));
     setTrailingStop(String(rec.trailingStop));
     setMaxHoldDays(String(rec.maxHoldDays));
+    setAiSuggestion(null);
+  }, []);
+
+  type PresetCombo = { label: string; buyId: string; sellId: string; tp: string; ts: string; maxDays: string };
+  const PRESET_COMBOS: PresetCombo[] = [
+    { label: '①逆張り+トレンド転換', buyId: 'preset-ai-rsi-enhanced', sellId: 'preset-sell-trend-reversal', tp: '8',  ts: '2', maxDays: '12' },
+    { label: '②逆張り+利益確定',     buyId: 'preset-ai-rsi-enhanced', sellId: 'preset-sell-profit-take',   tp: '10', ts: '3', maxDays: '20' },
+    { label: '③逆張り+弱気転換',     buyId: 'preset-ai-rsi-enhanced', sellId: 'preset-sell-bearish',       tp: '8',  ts: '2', maxDays: '15' },
+  ];
+
+  const applyCombo = useCallback((combo: PresetCombo) => {
+    setSelectedRuleId(combo.buyId);
+    setSellRuleId(combo.sellId);
+    setTakeProfit(combo.tp);
+    setTrailingStop(combo.ts);
+    setMaxHoldDays(combo.maxDays);
+    setResult(null);
+    setMultiResults([]);
     setAiSuggestion(null);
   }, []);
 
@@ -427,10 +447,55 @@ export default function Backtest({ data, stock }: Props) {
           </div>
         </div>
 
+        {/* 売りルール選択 */}
+        <div>
+          <label className="text-xs text-slate-500 flex items-center mb-1">
+            売りルール（オプション）
+            <InfoTooltip text="買いルール使用時に有効。未選択の場合は有効な売りルールをすべて使用します。" />
+          </label>
+          <select
+            value={sellRuleId}
+            onChange={e => setSellRuleId(e.target.value)}
+            className={`w-full ${inputCls}`}
+          >
+            <option value="">自動（有効な売りルールをすべて使用）</option>
+            {rules.filter(r => r.type === 'sell').map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 推奨コンビネーション */}
+        <div>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">推奨コンビネーション</p>
+          <div className="flex flex-wrap gap-2">
+            {PRESET_COMBOS.map(combo => {
+              const active = selectedRuleId === combo.buyId && sellRuleId === combo.sellId;
+              return (
+                <button
+                  key={combo.label}
+                  onClick={() => applyCombo(combo)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    active
+                      ? 'bg-blue-700 border-blue-600 text-white'
+                      : 'bg-slate-900 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-slate-100'
+                  }`}
+                >
+                  {combo.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {selectedRule && (
           <p className="text-[10px] text-slate-600">
             {selectedRule.type === 'buy'
-              ? `エントリー: ${selectedRule.name}　／　イグジット: 有効な売りルール or 期間終了`
+              ? `エントリー: ${selectedRule.name}　／　イグジット: ${
+                  sellRuleId
+                    ? (rules.find(r => r.id === sellRuleId)?.name ?? '売りルール')
+                    : '有効な売りルール'
+                } or 期間終了`
               : `エントリー: 有効な買いルール　／　イグジット: ${selectedRule.name}`}
             {multiMode && `　／　対象: ${isRealMode ? `全${ALL_STOCKS.length - 1}銘柄（リアル）` : `全${STOCKS.length}銘柄（モック）`}`}
           </p>
