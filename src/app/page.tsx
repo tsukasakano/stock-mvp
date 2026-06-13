@@ -13,12 +13,13 @@ import RuleEngine from '@/components/RuleEngine';
 import AlertPanel from '@/components/AlertPanel';
 import Backtest from '@/components/Backtest';
 import Screening from '@/components/Screening';
+import PortfolioStrategy from '@/components/PortfolioStrategy';
 import { buildChartData } from '@/lib/indicators';
 import { fetchStockData, type DataSource } from '@/lib/api';
 import { loadAlerts, saveAlerts } from '@/lib/ruleEngine';
 import type { ChartDataPoint, StockOption, NewsSentimentResult, AlertEntry } from '@/types/stock';
 
-type Tab = 'screening' | 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest';
+type Tab = 'screening' | 'chart' | 'journal' | 'simulator' | 'nisa' | 'news' | 'rules' | 'backtest' | 'portfolio';
 
 const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'screening', label: '🔍 スクリーニング',  short: '🔍' },
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: string; short: string }[] = [
   { id: 'news',      label: 'ニュース分析',        short: 'ニュース' },
   { id: 'rules',     label: '売買ルール',          short: 'ルール' },
   { id: 'backtest',  label: 'バックテスト',        short: 'BT' },
+  { id: 'portfolio', label: 'ポートフォリオ',      short: 'PF' },
 ];
 
 function ChartSkeleton() {
@@ -274,6 +276,16 @@ export default function Home() {
                 <span className="text-xs text-slate-600">{stock.label}（{stock.value}）</span>
               </div>
               <Backtest data={chartData} stock={stock} />
+            </div>
+          )}
+
+          {activeTab === 'portfolio' && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800/60">
+              <div className="flex items-baseline gap-2 mb-5">
+                <h2 className="text-sm font-semibold text-slate-200">ポートフォリオ戦略</h2>
+                <span className="text-xs text-slate-600">銘柄ごと最適ルール</span>
+              </div>
+              <PortfolioStrategy />
             </div>
           )}
 
